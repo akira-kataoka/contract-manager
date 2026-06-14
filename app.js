@@ -162,6 +162,28 @@
       return out;
     },
 
+    /** 営業担当ごとの契約数・金額・主な製品・状態内訳（金額降順） */
+    repRanking(contracts, today) {
+      const map = {};
+      (contracts || []).forEach((c) => {
+        const r = c.salesRep || "(未割当)";
+        if (!map[r]) map[r] = { name: r, count: 0, amount: 0, products: {}, status: { active: 0, expiring: 0, expired: 0, upcoming: 0, cancelled: 0 } };
+        const m = map[r];
+        m.count++;
+        m.amount += core.contractAmount(c);
+        const p = c.productName || "(製品未設定)";
+        m.products[p] = (m.products[p] || 0) + 1;
+        const st = core.computeStatus(c, today);
+        if (m.status[st] != null) m.status[st]++;
+      });
+      return Object.values(map)
+        .map((m) => ({
+          ...m,
+          topProducts: Object.entries(m.products).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, q]) => `${n}×${q}`),
+        }))
+        .sort((a, b) => b.amount - a.amount);
+    },
+
     /** 契約配列の件数・金額合計・税込合計 */
     totals(contracts) {
       let amount = 0;
@@ -1181,6 +1203,39 @@
   }
   function hideGanttTip() { if (_ganttTip) _ganttTip.hidden = true; }
 
+  function repRankingPanel(today) {
+    const ranking = core.repRanking(db.contracts, today);
+    const panel = el("div", { class: "panel" });
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">営業担当ランキング</h3><span class="cell-sub">契約金額順</span></div>`;
+    const body = el("div", { class: "panel-body table-wrap" });
+    if (ranking.length === 0) {
+      body.innerHTML = `<div class="empty"><div class="empty-title">データがありません</div></div>`;
+      panel.appendChild(body); return panel;
+    }
+    const t = el("table", { class: "data" });
+    t.innerHTML = `<thead><tr><th>順位</th><th>営業担当</th><th class="num">契約数</th><th class="num">契約金額</th><th>主な契約</th><th>状態</th></tr></thead>`;
+    const tb = el("tbody");
+    ranking.forEach((m, i) => {
+      const statusBits = [["active", "有効"], ["expiring", "更新間近"], ["expired", "期限切れ"]]
+        .filter(([k]) => m.status[k]).map(([k, l]) => `<span class="badge ${k}">${l}${m.status[k]}</span>`).join(" ");
+      const tr = el("tr");
+      tr.innerHTML =
+        `<td class="cell-strong">${i + 1}</td>` +
+        `<td class="cell-strong">${esc(m.name)}</td>` +
+        `<td class="num">${m.count}</td>` +
+        `<td class="num"><strong>${core.formatYen(m.amount)}</strong></td>` +
+        `<td class="cell-sub">${esc(m.topProducts.join("、")) || "—"}</td>` +
+        `<td>${statusBits || "—"}</td>`;
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", () => { state.view = "contracts"; state.filter.rep = m.name; render(); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    body.appendChild(t);
+    panel.appendChild(body);
+    return panel;
+  }
+
   /* ---------- ガント / タイムライン ---------- */
   function renderGantt(root, actions) {
     hideGanttTip();
@@ -1239,6 +1294,9 @@
       .forEach(([st, l]) => { legend.innerHTML += `<span class="stack-leg"><span class="dot st-${st}"></span>${l}</span>`; });
     bar.appendChild(legend);
     root.appendChild(bar);
+
+    // 営業担当ランキング（金額・件数・主な契約）
+    root.appendChild(repRankingPanel(today));
 
     const panel = el("div", { class: "panel" });
     panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">契約タイムライン</h3><span style="color:var(--text-mute);font-weight:600">${esc(core.formatDate(axis.startStr))} 〜 ${esc(core.formatDate(axis.endStr))}</span></div>`;

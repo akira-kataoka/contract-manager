@@ -226,6 +226,10 @@ test("マスタ管理に既定製品が表示される", () => {
   assert.ok(txt.includes("営業担当"));
   assert.ok(txt.includes("企画担当"));
 });
+test("タイムラインに営業担当ランキングが表示される", () => {
+  doc.querySelector('.nav-item[data-view="gantt"]').click();
+  assert.ok(doc.querySelector("#content").textContent.includes("営業担当ランキング"));
+});
 test("ガントのスケール切替(日/月/年)が効く", () => {
   doc.querySelector('.nav-item[data-view="gantt"]').click();
   const segBtns = [...doc.querySelectorAll(".segmented .seg-btn")];

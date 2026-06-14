@@ -174,6 +174,21 @@ test("終了日昇順", () => {
   assert.strictEqual(r[0].companyId, "b");
 });
 
+console.log("\n— repRanking —");
+test("営業担当ごとに金額降順で集計し主な製品を出す", () => {
+  const cs = [
+    { salesRep: "田中", productName: "Salesforce", quantity: 1, unitPrice: 1000, startDate: "2025-01-01", endDate: "2030-01-01" },
+    { salesRep: "田中", productName: "Salesforce", quantity: 1, unitPrice: 1000, startDate: "2025-01-01", endDate: "2030-01-01" },
+    { salesRep: "佐藤", productName: "Box", quantity: 1, unitPrice: 5000, startDate: "2025-01-01", endDate: "2030-01-01" },
+  ];
+  const r = core.repRanking(cs, TODAY);
+  assert.strictEqual(r[0].name, "佐藤"); // 金額5000で1位
+  assert.strictEqual(r[1].name, "田中");
+  assert.strictEqual(r[1].count, 2);
+  assert.ok(r[1].topProducts[0].startsWith("Salesforce"));
+  assert.strictEqual(r[1].status.active, 2);
+});
+
 console.log("\n— totals —");
 test("件数・金額合計・税込を返す", () => {
   const cs = [
