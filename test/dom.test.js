@@ -229,6 +229,23 @@ test("マスタ管理に既定製品が表示される", () => {
   assert.ok(txt.includes("営業担当"));
   assert.ok(txt.includes("企画担当"));
 });
+test("担当者追加は1画面フォーム（部署・備考あり）で開く", () => {
+  doc.querySelector('.nav-item[data-view="settings"]').click();
+  const addBtn = [...doc.querySelectorAll("#content .panel-head button")].find((b) => b.textContent.includes("営業担当者を追加"));
+  assert.ok(addBtn, "営業担当者追加ボタンが見出しにある");
+  addBtn.click();
+  const body = doc.querySelector("#modalBody");
+  assert.ok(body.textContent.includes("部署") && body.textContent.includes("Teams") && body.textContent.includes("備考"));
+  doc.querySelector("#modalClose").click();
+});
+test("顧客担当者を専用パネルから追加できる（企業選択あり）", () => {
+  const addBtn = [...doc.querySelectorAll("#content .panel-head button")].find((b) => b.textContent.includes("顧客担当者を追加"));
+  assert.ok(addBtn, "顧客担当者追加ボタンがある");
+  addBtn.click();
+  const body = doc.querySelector("#modalBody");
+  assert.ok(body.textContent.includes("企業") && body.textContent.includes("電話番号"));
+  doc.querySelector("#modalClose").click();
+});
 test("ダッシュボード最下部に営業担当ランキングが表示される", () => {
   doc.querySelector('.nav-item[data-view="dashboard"]').click();
   assert.ok(doc.querySelector("#content").textContent.includes("営業担当ランキング"));

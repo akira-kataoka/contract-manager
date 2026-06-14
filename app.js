@@ -528,8 +528,8 @@
       return Object.values(map);
     },
     repsToCSV(sales, planners) {
-      const rows = [["区分", "氏名", "メール", "Teams"].join(",")];
-      const add = (kind, list) => (list || []).forEach((r) => { const o = typeof r === "string" ? { name: r } : r; rows.push([kind, o.name, o.email || "", o.teams || ""].map(core.csvEscape).join(",")); });
+      const rows = [["区分", "氏名", "部署", "メール", "Teams", "備考"].join(",")];
+      const add = (kind, list) => (list || []).forEach((r) => { const o = typeof r === "string" ? { name: r } : r; rows.push([kind, o.name, o.dept || "", o.email || "", o.teams || "", o.note || ""].map(core.csvEscape).join(",")); });
       add("営業", sales); add("企画", planners);
       return rows.join("\r\n");
     },
@@ -541,7 +541,7 @@
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; const g = (n) => { const j = gi(n); return j >= 0 ? (r[j] || "").trim() : ""; };
         const name = g("氏名"); if (!name) continue;
-        const rep = { name, email: g("メール"), teams: g("Teams") };
+        const rep = { name, dept: g("部署"), email: g("メール"), teams: g("Teams"), note: g("備考") };
         (g("区分") === "企画" ? out.planners : out.sales).push(rep);
       }
       return out;
@@ -737,7 +737,7 @@
     },
     // 担当者マスタを {name,email,teams} オブジェクトに正規化（旧:文字列配列）
     normalizeReps() {
-      const norm = (list) => (list || []).map((r) => (typeof r === "string" ? { name: r, email: "", teams: "" } : { name: r.name || "", email: r.email || "", teams: r.teams || "" })).filter((r) => r.name);
+      const norm = (list) => (list || []).map((r) => (typeof r === "string" ? { name: r, dept: "", email: "", teams: "", note: "" } : { name: r.name || "", dept: r.dept || "", email: r.email || "", teams: r.teams || "", note: r.note || "" })).filter((r) => r.name);
       db.salesRepsList = norm(db.salesRepsList);
       db.plannerRepsList = norm(db.plannerRepsList);
     },
@@ -747,7 +747,7 @@
       return r && typeof r === "object" ? r : null;
     },
     repExists(list, name) { return (list || []).some((r) => (typeof r === "string" ? r : r.name) === name); },
-    addRep(list, name) { if (name && name.trim() && !db.repExists(list, name.trim())) list.push({ name: name.trim(), email: "", teams: "" }); },
+    addRep(list, name) { if (name && name.trim() && !db.repExists(list, name.trim())) list.push({ name: name.trim(), dept: "", email: "", teams: "", note: "" }); },
     save() {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         companies: db.companies, contracts: db.contracts, products: db.products,
@@ -1800,43 +1800,60 @@
     return panel;
   }
 
+  function openRepModal(title, list, index) {
+    const editing = index != null ? (typeof list[index] === "string" ? { name: list[index] } : list[index]) : null;
+    const r = editing || {};
+    const grid = el("div", { class: "form-grid" });
+    const nameInput = el("input", { type: "text", value: r.name || "", placeholder: "氏名" });
+    const deptInput = el("input", { type: "text", value: r.dept || "", placeholder: "所属部署" });
+    const emailInput = el("input", { type: "email", value: r.email || "", placeholder: "メールアドレス" });
+    const teamsInput = el("input", { type: "url", value: r.teams || "", placeholder: "Teamsチャットのリンク（URL）" });
+    const noteInput = el("textarea", { placeholder: "備考" });
+    noteInput.value = r.note || "";
+    grid.appendChild(field('氏名 <span class="req">*</span>', nameInput));
+    grid.appendChild(field("部署", deptInput));
+    grid.appendChild(field("メールアドレス", emailInput));
+    grid.appendChild(field("Teams", teamsInput));
+    grid.appendChild(field("備考", noteInput, true));
+    const foot = el("div");
+    foot.appendChild(buttonEl("キャンセル", "btn btn-sec", closeModal));
+    foot.appendChild(buttonEl(editing ? "更新" : "登録", "btn", () => {
+      if (!nameInput.value.trim()) { nameInput.closest(".field").classList.add("invalid"); return; }
+      const data = { name: nameInput.value.trim(), dept: deptInput.value.trim(), email: emailInput.value.trim(), teams: teamsInput.value.trim(), note: noteInput.value.trim() };
+      if (editing) { list[index] = data; toast(`${title}を更新しました`, "success"); }
+      else { if (db.repExists(list, data.name)) { toast("既に登録されています", "error"); return; } list.push(data); toast(`${title}を登録しました`, "success"); }
+      db.save(); closeModal(); render();
+    }));
+    openModal(editing ? `${title}を編集` : `${title}を追加`, grid, foot);
+  }
   function repsPanel(title, list) {
     const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">${title}</h3></div>`;
+    const head = el("div", { class: "panel-head" });
+    head.innerHTML = `<h3 class="panel-title">${title}</h3>`;
+    head.appendChild(buttonEl(`＋ ${title}を追加`, "btn btn-sm", () => openRepModal(title, list)));
+    panel.appendChild(head);
     const body = el("div", { class: "panel-body table-wrap" });
     const t = el("table", { class: "data" });
-    t.innerHTML = `<thead><tr><th>氏名</th><th>メール</th><th>Teams</th><th></th></tr></thead>`;
+    t.innerHTML = `<thead><tr><th>氏名</th><th>部署</th><th>メール</th><th>Teams</th><th>備考</th><th></th></tr></thead>`;
     const tb = el("tbody");
-    list.forEach((r, i) => {
-      const rep = typeof r === "string" ? { name: r, email: "", teams: "" } : r;
+    list.forEach((rr, i) => {
+      const rep = typeof rr === "string" ? { name: rr } : rr;
       const tr = el("tr");
       tr.innerHTML =
         `<td class="cell-strong">${esc(rep.name)}</td>` +
+        `<td class="cell-sub">${esc(rep.dept) || "—"}</td>` +
         `<td class="cell-sub">${rep.email ? `<a class="doc-link" href="mailto:${esc(rep.email)}">${esc(rep.email)}</a>` : "—"}</td>` +
-        `<td class="cell-sub">${rep.teams ? `<a class="doc-link" href="${esc(rep.teams)}" target="_blank" rel="noopener">💬 チャット</a>` : "—"}</td>`;
+        `<td class="cell-sub">${rep.teams ? `<a class="doc-link" href="${esc(rep.teams)}" target="_blank" rel="noopener">💬 チャット</a>` : "—"}</td>` +
+        `<td class="cell-sub">${esc(rep.note) || "—"}</td>`;
       const td = el("td");
       const wrap = el("div", { class: "row-actions" });
-      wrap.appendChild(buttonEl("✎", "btn-icon", () => {
-        const name = prompt("氏名", rep.name); if (name === null) return;
-        const email = prompt("メールアドレス", rep.email || ""); if (email === null) return;
-        const teams = prompt("Teamsチャットのリンク（URL）", rep.teams || ""); if (teams === null) return;
-        list[i] = { name: name.trim() || rep.name, email: email.trim(), teams: teams.trim() };
-        db.save(); render();
-      }, "編集"));
+      wrap.appendChild(buttonEl("✎", "btn-icon", () => openRepModal(title, list, i), "編集"));
       wrap.appendChild(buttonEl("🗑", "btn-icon", () => { if (confirm(`「${rep.name}」を削除しますか?`)) { list.splice(i, 1); db.save(); render(); } }, "削除"));
       td.appendChild(wrap); tr.appendChild(td);
       tb.appendChild(tr);
     });
     t.appendChild(tb);
     body.appendChild(t);
-    body.appendChild(buttonEl(`＋ ${title}を追加`, "btn btn-sec btn-sm", () => {
-      const name = prompt(`${title}名`); if (!name || !name.trim()) return;
-      if (db.repExists(list, name.trim())) { toast("既に登録されています", "error"); return; }
-      const email = prompt("メールアドレス（任意）") || "";
-      const teams = prompt("Teamsチャットのリンク（任意）") || "";
-      list.push({ name: name.trim(), email: email.trim(), teams: teams.trim() });
-      db.save(); render();
-    }));
     panel.appendChild(body);
     return panel;
   }
@@ -1889,14 +1906,47 @@
     db.save(); toast(`企業 ${parsed.length} 件を取込みました`, "success"); render();
   }
 
+  function openCustomerContactModal(companyId, contactIndex) {
+    const co0 = companyId ? db.company(companyId) : null;
+    const editing = co0 && contactIndex != null;
+    const ct = editing ? (typeof co0.contacts[contactIndex] === "string" ? { name: co0.contacts[contactIndex] } : co0.contacts[contactIndex]) : {};
+    const grid = el("div", { class: "form-grid" });
+    const compSel = el("select");
+    compSel.appendChild(el("option", { value: "" }, "選択してください"));
+    db.companies.slice().sort((a, b) => a.name.localeCompare(b.name, "ja")).forEach((c) => compSel.appendChild(el("option", { value: c.id, selected: c.id === companyId }, c.name)));
+    compSel.disabled = !!editing;
+    const nameInput = el("input", { type: "text", value: ct.name || "", placeholder: "氏名" });
+    const emailInput = el("input", { type: "email", value: ct.email || "", placeholder: "メールアドレス" });
+    const phoneInput = el("input", { type: "tel", value: ct.phone || "", placeholder: "電話番号" });
+    grid.appendChild(field('企業 <span class="req">*</span>', compSel));
+    grid.appendChild(field('氏名 <span class="req">*</span>', nameInput));
+    grid.appendChild(field("メールアドレス", emailInput));
+    grid.appendChild(field("電話番号", phoneInput));
+    const foot = el("div");
+    foot.appendChild(buttonEl("キャンセル", "btn btn-sec", closeModal));
+    foot.appendChild(buttonEl(editing ? "更新" : "登録", "btn", () => {
+      const co = db.company(compSel.value);
+      if (!co) { compSel.closest(".field").classList.add("invalid"); return; }
+      if (!nameInput.value.trim()) { nameInput.closest(".field").classList.add("invalid"); return; }
+      if (!Array.isArray(co.contacts)) co.contacts = [];
+      const data = { name: nameInput.value.trim(), email: emailInput.value.trim(), phone: phoneInput.value.trim() };
+      if (editing) { co.contacts[contactIndex] = data; toast("顧客担当者を更新しました", "success"); }
+      else { co.contacts.push(data); toast("顧客担当者を登録しました", "success"); }
+      db.save(); closeModal(); render();
+    }));
+    openModal(editing ? "顧客担当者を編集" : "顧客担当者を追加", grid, foot);
+  }
   function customerContactsPanel() {
     const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">顧客担当者</h3><span class="cell-sub">企業ごとに管理（登録・編集は企業から）</span></div>`;
+    const head = el("div", { class: "panel-head" });
+    head.innerHTML = `<h3 class="panel-title">顧客担当者</h3>`;
+    head.appendChild(buttonEl("＋ 顧客担当者を追加", "btn btn-sm", () => openCustomerContactModal()));
+    panel.appendChild(head);
     const body = el("div", { class: "panel-body table-wrap" });
     const rows = [];
-    db.companies.forEach((co) => (co.contacts || []).forEach((ct) => {
+    db.companies.forEach((co) => (co.contacts || []).forEach((ct, idx) => {
       const c = typeof ct === "string" ? { name: ct } : ct;
-      rows.push({ co, name: c.name, email: c.email || "", phone: c.phone || "" });
+      rows.push({ co, idx, name: c.name, email: c.email || "", phone: c.phone || "" });
     }));
     rows.sort((a, b) => a.co.name.localeCompare(b.co.name, "ja") || a.name.localeCompare(b.name, "ja"));
     if (rows.length === 0) {
@@ -1909,7 +1959,10 @@
         const tr = el("tr");
         tr.innerHTML = `<td class="cell-strong">${esc(r.name)}</td><td>${esc(r.co.name)}</td><td class="cell-sub">${r.email ? `<a class="doc-link" href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : "—"}</td><td class="cell-sub">${esc(r.phone) || "—"}</td>`;
         const td = el("td");
-        td.appendChild(buttonEl("企業を編集", "btn-icon", () => openCompanyModal(r.co.id), "編集"));
+        const wrap = el("div", { class: "row-actions" });
+        wrap.appendChild(buttonEl("✎", "btn-icon", () => openCustomerContactModal(r.co.id, r.idx), "編集"));
+        wrap.appendChild(buttonEl("🗑", "btn-icon", () => { if (confirm(`「${r.name}」を削除しますか?`)) { r.co.contacts.splice(r.idx, 1); db.save(); render(); } }, "削除"));
+        td.appendChild(wrap);
         tr.appendChild(td);
         tb.appendChild(tr);
       });
@@ -2017,7 +2070,7 @@
     root.appendChild(masterCsvRow(
       () => downloadCSV(core.repsToCSV(db.salesRepsList, db.plannerRepsList), "担当者.csv"),
       importRepsCsv,
-      "区分,氏名,メール,Teams\r\n" + ["営業", "田中 太郎", "tanaka@example.com", ""].map(core.csvEscape).join(","),
+      "区分,氏名,部署,メール,Teams,備考\r\n" + ["営業", "田中 太郎", "営業部", "tanaka@example.com", "", ""].map(core.csvEscape).join(","),
       "担当者"));
 
     // ■ データ（サンプル投入）
