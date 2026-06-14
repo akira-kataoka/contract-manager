@@ -568,21 +568,38 @@
   const AUTOBAK_THROTTLE = 300000; // 5分に1回まで
 
   function loadAutoBak() {
-    try { return JSON.parse(localStorage.getItem(AUTOBAK_KEY)) || { enabled: false, snapshots: [], lastAt: 0 }; }
-    catch (e) { return { enabled: false, snapshots: [], lastAt: 0 }; }
+    const def = { enabled: false, interval: "off", snapshots: [], lastAt: 0, lastPeriodicAt: 0 };
+    try { return Object.assign(def, JSON.parse(localStorage.getItem(AUTOBAK_KEY)) || {}); }
+    catch (e) { return def; }
   }
   function saveAutoBak(o) { try { localStorage.setItem(AUTOBAK_KEY, JSON.stringify(o)); } catch (e) { /* noop */ } }
+  function nowStamp() {
+    const d = new Date();
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  function pushSnapshot(o, kind) {
+    o.snapshots.unshift({ at: nowStamp(), kind, data: core.makeBackup(db).data });
+    o.snapshots = o.snapshots.slice(0, AUTOBAK_MAX);
+    saveAutoBak(o);
+  }
+  // 変更時の自動バックアップ（db.save から呼ばれる・5分に1回まで）
   function maybeAutoBackup() {
     const o = loadAutoBak();
     if (!o.enabled) return;
     const now = Date.now();
     if (o.snapshots.length && now - (o.lastAt || 0) < AUTOBAK_THROTTLE) return;
-    const d = new Date();
-    const at = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    o.snapshots.unshift({ at, data: core.makeBackup(db).data });
-    o.snapshots = o.snapshots.slice(0, AUTOBAK_MAX);
     o.lastAt = now;
-    saveAutoBak(o);
+    pushSnapshot(o, "自動");
+  }
+  // 定期バックアップ（毎日/毎週・起動時と1時間ごとに判定）
+  function periodicBackupCheck() {
+    const o = loadAutoBak();
+    if (!o.interval || o.interval === "off") return;
+    const span = o.interval === "weekly" ? 7 * 86400000 : 86400000;
+    const now = Date.now();
+    if (now - (o.lastPeriodicAt || 0) < span) return;
+    o.lastPeriodicAt = now;
+    pushSnapshot(o, "定期");
   }
   let idCounter = Date.now();
   const nextId = (p) => core.makeId(p, idCounter++);
@@ -720,7 +737,7 @@
      ============================================================ */
   function render() {
     document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
-    const titles = { dashboard: "ダッシュボード", contracts: "契約一覧", gantt: "タイムライン", companies: "企業一覧", tasks: "更新タスク", settings: "マスタ管理" };
+    const titles = { dashboard: "ダッシュボード", contracts: "契約一覧", gantt: "タイムライン", tasks: "更新タスク", settings: "マスタ管理" };
     if (!titles[state.view]) state.view = "dashboard";
     $("#pageTitle").textContent = titles[state.view] || "";
     updateTaskBadge();
@@ -732,7 +749,6 @@
     if (state.view === "dashboard") renderDashboard(content);
     else if (state.view === "contracts") renderContracts(content, actions);
     else if (state.view === "gantt") renderGantt(content, actions);
-    else if (state.view === "companies") renderCompanies(content, actions);
     else if (state.view === "tasks") renderTasks(content, actions);
     else if (state.view === "settings") renderSettings(content);
 
@@ -822,24 +838,7 @@
     if (need.length === 0) {
       body.innerHTML = `<div class="empty"><div class="empty-ico">✓</div><div class="empty-title">対応が必要な契約はありません</div></div>`;
     } else {
-      const byCompany = {};
-      need.forEach((c) => { (byCompany[c.companyId] = byCompany[c.companyId] || []).push(c); });
-      Object.keys(byCompany)
-        .sort((a, b) => db.companyName(a).localeCompare(db.companyName(b), "ja"))
-        .forEach((cid) => {
-          const head = el("div", { class: "group-head" });
-          head.innerHTML = `<span>${esc(db.companyName(cid))}</span><span class="gantt-group-count">${byCompany[cid].length}</span>`;
-          body.appendChild(head);
-          // 部署ごとにサブグループ（製品・ライセンスは表の各行で表示）
-          const byDept = {};
-          byCompany[cid].forEach((c) => { const d = c.department || "（部署なし）"; (byDept[d] = byDept[d] || []).push(c); });
-          Object.keys(byDept).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
-            body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
-            const list = byDept[dept]
-              .sort((a, b) => (a.productName || "").localeCompare(b.productName || "", "ja") || (a.licenseType || "").localeCompare(b.licenseType || "", "ja"));
-            body.appendChild(contractsTable(list, true));
-          });
-        });
+      body.appendChild(groupedContractsTable(need, true));
     }
     panel.appendChild(body);
     const clr = panel.querySelector("[data-clear]");
@@ -1019,24 +1018,7 @@
       return;
     }
     if (state.contractGroup) {
-      // 企業 → 部署 → 製品 → ライセンス でグルーピング
-      const byCompany = {};
-      list.forEach((c) => { (byCompany[c.companyId] = byCompany[c.companyId] || []).push(c); });
-      Object.keys(byCompany)
-        .sort((a, b) => db.companyName(a).localeCompare(db.companyName(b), "ja"))
-        .forEach((cid) => {
-          const cs = byCompany[cid];
-          const head = el("div", { class: "group-head" });
-          head.innerHTML = `<span>${esc(db.companyName(cid))}</span><span class="gantt-group-count">${cs.length}</span>`;
-          body.appendChild(head);
-          const byDept = {};
-          cs.forEach((c) => { const d = c.department || "（部署なし）"; (byDept[d] = byDept[d] || []).push(c); });
-          Object.keys(byDept).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
-            body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
-            const dl = byDept[dept].sort((a, b) => (a.productName || "").localeCompare(b.productName || "", "ja") || (a.licenseType || "").localeCompare(b.licenseType || "", "ja"));
-            body.appendChild(contractsTable(dl, true));
-          });
-        });
+      body.appendChild(groupedContractsTable(list, true));
     } else {
       body.appendChild(contractsTable(list, true));
     }
@@ -1046,23 +1028,22 @@
     body.appendChild(foot);
   }
 
-  function contractsTable(list, withActions) {
-    const t = el("table", { class: "data" });
-    const cols = [
-      ["contractNo", "契約番号"],
-      ["company", "企業 / 部署"],
-      ["product", "製品 / ライセンス"],
-      ["billing", "契約形態"],
-      ["quantity", "数量", "num"],
-      ["amount", "金額", "num"],
-      ["salesRep", "営業担当"],
-      ["endDate", "終了日"],
-      ["daysLeft", "残日数"],
-      ["status", "状態"],
-    ];
+  const CONTRACT_COLS = [
+    ["contractNo", "契約番号"],
+    ["company", "企業 / 部署"],
+    ["product", "製品 / ライセンス"],
+    ["billing", "契約形態"],
+    ["quantity", "数量", "num"],
+    ["amount", "金額", "num"],
+    ["salesRep", "営業担当"],
+    ["endDate", "終了日"],
+    ["daysLeft", "残日数"],
+    ["status", "状態"],
+  ];
+  function contractHead(withActions) {
     const thead = el("thead");
     const tr = el("tr");
-    cols.forEach(([key, label, cls]) => {
+    CONTRACT_COLS.forEach(([key, label, cls]) => {
       const sortable = key !== "status";
       const ind = state.sort.key === key ? `<span class="sort-ind">${state.sort.dir === "asc" ? "▲" : "▼"}</span>` : "";
       const th = el("th", { class: (cls ? cls + " " : "") + (sortable ? "sortable" : "") }, label + ind);
@@ -1071,36 +1052,69 @@
     });
     if (withActions) tr.appendChild(el("th", {}, ""));
     thead.appendChild(tr);
-    t.appendChild(thead);
-
+    return thead;
+  }
+  function contractRow(c, withActions) {
+    const row = el("tr", { class: "row-" + core.computeStatus(c, todayStr()) });
+    row.innerHTML = `
+      <td class="cell-sub">${esc(c.contractNo || "—")}</td>
+      <td><div class="cell-strong">${esc(db.companyName(c.companyId))}</div><div class="cell-sub">${esc(c.department || "—")}</div></td>
+      <td><div class="cell-strong">${esc(c.productName || "—")}</div><div class="cell-sub">${esc(c.licenseType || "—")}</div></td>
+      <td>${esc(c.billingType || "—")}</td>
+      <td class="num">${Number(c.quantity) || 0}</td>
+      <td class="num">${core.formatYen(core.contractAmount(c))}</td>
+      <td>${esc(c.salesRep || "—")}</td>
+      <td>${core.formatDate(c.endDate)}</td>
+      <td>${daysLeftCell(c)}</td>
+      <td>${statusBadge(c)}</td>`;
+    if (withActions) {
+      const td = el("td");
+      const wrap = el("div", { class: "row-actions" });
+      wrap.appendChild(buttonEl("詳細", "btn-icon", () => openContractDetail(c.id), "詳細"));
+      wrap.appendChild(buttonEl("✎", "btn-icon", () => openContractModal(c.id), "編集"));
+      wrap.appendChild(buttonEl("🗑", "btn-icon", () => deleteContract(c.id), "削除"));
+      td.appendChild(wrap);
+      row.appendChild(td);
+    } else {
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => openContractDetail(c.id));
+    }
+    return row;
+  }
+  function contractsTable(list, withActions) {
+    const t = el("table", { class: "data" });
+    t.appendChild(contractHead(withActions));
     const tb = el("tbody");
-    list.forEach((c) => {
-      const row = el("tr", { class: "row-" + core.computeStatus(c, todayStr()) });
-      row.innerHTML = `
-        <td class="cell-sub">${esc(c.contractNo || "—")}</td>
-        <td><div class="cell-strong">${esc(db.companyName(c.companyId))}</div><div class="cell-sub">${esc(c.department || "—")}</div></td>
-        <td><div class="cell-strong">${esc(c.productName || "—")}</div><div class="cell-sub">${esc(c.licenseType || "—")}</div></td>
-        <td>${esc(c.billingType || "—")}</td>
-        <td class="num">${Number(c.quantity) || 0}</td>
-        <td class="num">${core.formatYen(core.contractAmount(c))}</td>
-        <td>${esc(c.salesRep || "—")}</td>
-        <td>${core.formatDate(c.endDate)}</td>
-        <td>${daysLeftCell(c)}</td>
-        <td>${statusBadge(c)}</td>`;
-      if (withActions) {
-        const td = el("td");
-        const wrap = el("div", { class: "row-actions" });
-        wrap.appendChild(buttonEl("詳細", "btn-icon", () => openContractDetail(c.id), "詳細"));
-        wrap.appendChild(buttonEl("✎", "btn-icon", () => openContractModal(c.id), "編集"));
-        wrap.appendChild(buttonEl("🗑", "btn-icon", () => deleteContract(c.id), "削除"));
-        td.appendChild(wrap);
-        row.appendChild(td);
-      } else {
-        row.style.cursor = "pointer";
-        row.addEventListener("click", () => openContractDetail(c.id));
-      }
-      tb.appendChild(row);
-    });
+    list.forEach((c) => tb.appendChild(contractRow(c, withActions)));
+    t.appendChild(tb);
+    return t;
+  }
+  /** 企業→部署のグループ見出し行を内包した単一テーブル（列が揃う） */
+  function groupedContractsTable(list, withActions) {
+    const colCount = CONTRACT_COLS.length + (withActions ? 1 : 0);
+    const t = el("table", { class: "data" });
+    t.appendChild(contractHead(withActions));
+    const tb = el("tbody");
+    const byCompany = {};
+    list.forEach((c) => { (byCompany[c.companyId] = byCompany[c.companyId] || []).push(c); });
+    Object.keys(byCompany)
+      .sort((a, b) => db.companyName(a).localeCompare(db.companyName(b), "ja"))
+      .forEach((cid) => {
+        const cs = byCompany[cid];
+        const gr = el("tr", { class: "grp-row" });
+        gr.innerHTML = `<td colspan="${colCount}"><span class="grp-co">${esc(db.companyName(cid))}</span><span class="gantt-group-count">${cs.length}</span></td>`;
+        tb.appendChild(gr);
+        const byDept = {};
+        cs.forEach((c) => { const d = c.department || "（部署なし）"; (byDept[d] = byDept[d] || []).push(c); });
+        Object.keys(byDept).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
+          const sr = el("tr", { class: "subgrp-row" });
+          sr.innerHTML = `<td colspan="${colCount}">${esc(dept)}</td>`;
+          tb.appendChild(sr);
+          byDept[dept]
+            .sort((a, b) => (a.productName || "").localeCompare(b.productName || "", "ja") || (a.licenseType || "").localeCompare(b.licenseType || "", "ja"))
+            .forEach((c) => tb.appendChild(contractRow(c, withActions)));
+        });
+      });
     t.appendChild(tb);
     return t;
   }
@@ -1111,8 +1125,41 @@
     refreshContractTable();
   }
 
+  /* ---------- ガント バーのツールチップ ---------- */
+  let _ganttTip = null;
+  function ganttTipEl() {
+    if (!_ganttTip) { _ganttTip = el("div", { class: "gantt-tip", hidden: true }); document.body.appendChild(_ganttTip); }
+    return _ganttTip;
+  }
+  function showGanttTip(e, c) {
+    const tip = ganttTipEl();
+    const st = core.computeStatus(c, todayStr());
+    const dl = daysLeftCell(c);
+    tip.innerHTML =
+      `<div class="tip-co">${esc(db.companyName(c.companyId))}</div>` +
+      `<div class="tip-sub">${esc(c.department || "—")}</div>` +
+      `<div class="tip-main">${esc(c.productName || "")} <span class="tip-lic">${esc(c.licenseType || "")}</span></div>` +
+      `<div class="tip-line">${esc(c.contractNo || "")}${c.billingType ? " ・ " + esc(c.billingType) : ""}</div>` +
+      `<div class="tip-line">${core.formatDate(c.startDate)} 〜 ${core.formatDate(c.endDate)} ${dl}</div>` +
+      `<div class="tip-line"><strong>${core.formatYen(core.contractAmount(c))}</strong> &nbsp; <span class="badge ${st}">${core.statusLabel(st)}</span></div>` +
+      `<div class="tip-line tip-sub">営業: ${esc(c.salesRep || "—")} ／ 企画: ${esc(c.plannerRep || "—")}</div>`;
+    tip.hidden = false;
+    moveGanttTip(e);
+  }
+  function moveGanttTip(e) {
+    const tip = _ganttTip; if (!tip || tip.hidden) return;
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const w = tip.offsetWidth || 260, h = tip.offsetHeight || 120;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
+    if (y + h > window.innerHeight - 8) y = e.clientY - h - pad;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  function hideGanttTip() { if (_ganttTip) _ganttTip.hidden = true; }
+
   /* ---------- ガント / タイムライン ---------- */
   function renderGantt(root, actions) {
+    hideGanttTip();
     actions.appendChild(buttonEl("+ 契約を追加", "btn", () => openContractModal()));
     const today = todayStr();
     const anchor = state.ganttAnchor || today;
@@ -1178,7 +1225,7 @@
     }
 
     const scroll = el("div", { class: "gantt-scroll" });
-    const wrap = el("div", { class: "gantt gantt-" + axis.scale });
+    const wrap = el("div", { class: "gantt tl-" + axis.scale });
     const colPx = axis.scale === "day" ? 38 : axis.scale === "year" ? 64 : 60;
     wrap.style.minWidth = (220 + axis.ticks.length * colPx) + "px";
     const tp = core.datePct(today, axis.startStr, axis.endStr);
@@ -1225,10 +1272,13 @@
       const b = core.ganttBar(c, axis.startStr, axis.endStr);
       if (b.visible) {
         const st = core.computeStatus(c, today);
-        const bar2 = el("div", { class: "gantt-bar " + st, title: `${db.companyName(c.companyId)} / ${c.productName || ""} ${c.licenseType || ""}\n${core.formatDate(c.startDate)} 〜 ${core.formatDate(c.endDate)}（${core.statusLabel(st)}）` });
+        const bar2 = el("div", { class: "gantt-bar " + st });
         bar2.style.left = b.leftPct + "%"; bar2.style.width = b.widthPct + "%";
         bar2.innerHTML = `<span class="gantt-bar-text">${esc(c.licenseType || c.productName || "")}</span>`;
         bar2.addEventListener("click", () => openContractDetail(c.id));
+        bar2.addEventListener("mouseenter", (e) => showGanttTip(e, c));
+        bar2.addEventListener("mousemove", moveGanttTip);
+        bar2.addEventListener("mouseleave", hideGanttTip);
         tr.appendChild(bar2);
       }
       rowEl.appendChild(tr);
@@ -1347,21 +1397,22 @@
       if (a === NONE) return 1; if (b === NONE) return -1;
       return db.companyName(a).localeCompare(db.companyName(b), "ja");
     });
+    // 単一テーブルにグループ見出し行を内包（列が揃う）
+    const t = el("table", { class: "data" });
+    t.innerHTML = `<thead><tr><th></th><th>タスク</th><th>関連契約</th><th>期日</th><th>担当</th><th>状態</th><th></th></tr></thead>`;
+    const tb = el("tbody");
     cids.forEach((cid) => {
       const total = Object.values(groups[cid]).reduce((s, arr) => s + arr.length, 0);
-      const ch = el("div", { class: "group-head" });
-      ch.innerHTML = `<span>${cid === NONE ? "（契約なし）" : esc(db.companyName(cid))}</span><span class="gantt-group-count">${total}</span>`;
-      body.appendChild(ch);
+      const gr = el("tr", { class: "grp-row" });
+      gr.innerHTML = `<td colspan="7"><span class="grp-co">${cid === NONE ? "（契約なし）" : esc(db.companyName(cid))}</span><span class="gantt-group-count">${total}</span></td>`;
+      tb.appendChild(gr);
       Object.keys(groups[cid]).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
-        if (cid !== NONE) body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
-        const t = el("table", { class: "data" });
-        t.innerHTML = `<thead><tr><th></th><th>タスク</th><th>関連契約</th><th>期日</th><th>担当</th><th>状態</th><th></th></tr></thead>`;
-        const tb = el("tbody");
+        if (cid !== NONE) { const sr = el("tr", { class: "subgrp-row" }); sr.innerHTML = `<td colspan="7">${esc(dept)}</td>`; tb.appendChild(sr); }
         groups[cid][dept].forEach((tk) => tb.appendChild(taskRow(tk)));
-        t.appendChild(tb);
-        body.appendChild(t);
       });
     });
+    t.appendChild(tb);
+    body.appendChild(t);
     panel.appendChild(body);
     root.appendChild(panel);
   }
@@ -1574,6 +1625,36 @@
     return panel;
   }
 
+  function customerContactsPanel() {
+    const panel = el("div", { class: "panel" });
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">顧客担当者</h3><span class="cell-sub">企業ごとに管理（登録・編集は企業から）</span></div>`;
+    const body = el("div", { class: "panel-body table-wrap" });
+    const rows = [];
+    db.companies.forEach((co) => (co.contacts || []).forEach((ct) => {
+      const c = typeof ct === "string" ? { name: ct } : ct;
+      rows.push({ co, name: c.name, email: c.email || "", phone: c.phone || "" });
+    }));
+    rows.sort((a, b) => a.co.name.localeCompare(b.co.name, "ja") || a.name.localeCompare(b.name, "ja"));
+    if (rows.length === 0) {
+      body.innerHTML = `<div class="empty"><div class="empty-title">顧客担当者は未登録です</div></div>`;
+    } else {
+      const t = el("table", { class: "data" });
+      t.innerHTML = `<thead><tr><th>氏名</th><th>企業</th><th>メール</th><th>電話</th><th></th></tr></thead>`;
+      const tb = el("tbody");
+      rows.forEach((r) => {
+        const tr = el("tr");
+        tr.innerHTML = `<td class="cell-strong">${esc(r.name)}</td><td>${esc(r.co.name)}</td><td class="cell-sub">${r.email ? `<a class="doc-link" href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : "—"}</td><td class="cell-sub">${esc(r.phone) || "—"}</td>`;
+        const td = el("td");
+        td.appendChild(buttonEl("企業を編集", "btn-icon", () => openCompanyModal(r.co.id), "編集"));
+        tr.appendChild(td);
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb); body.appendChild(t);
+    }
+    panel.appendChild(body);
+    return panel;
+  }
+
   function renderSettings(root) {
     // ■ 製品・ライセンス
     root.appendChild(el("h2", { class: "section-title" }, "製品・ライセンス"));
@@ -1627,18 +1708,25 @@
 
     // ■ 契約
     root.appendChild(el("h2", { class: "section-title" }, "契約"));
-    root.appendChild(masterChipPanel("契約体系", db.billingTypes, () => {
-      const v = prompt("契約体系（例: 年額, 月額, 従量課金）"); if (v && v.trim() && !db.billingTypes.includes(v.trim())) { db.billingTypes.push(v.trim()); db.save(); render(); }
-    }, "＋ 契約体系を追加"));
+    root.appendChild(masterChipPanel("契約形態", db.billingTypes, () => {
+      const v = prompt("契約形態（例: 年額, 月額, 従量課金）"); if (v && v.trim() && !db.billingTypes.includes(v.trim())) { db.billingTypes.push(v.trim()); db.save(); render(); }
+    }, "＋ 契約形態を追加"));
+
+    // ■ 企業・部署（企業一覧を統合）
+    root.appendChild(el("h2", { class: "section-title" }, "企業・部署"));
+    const compActions = el("div", { class: "section-actions" });
+    root.appendChild(compActions);
+    renderCompanies(root, compActions);
 
     // ■ 担当者
     root.appendChild(el("h2", { class: "section-title" }, "担当者"));
-    root.appendChild(masterChipPanel("営業担当", db.salesRepsList, () => {
-      const v = prompt("営業担当名"); if (v && v.trim() && !db.salesRepsList.includes(v.trim())) { db.salesRepsList.push(v.trim()); db.save(); render(); }
-    }, "＋ 営業担当を追加"));
-    root.appendChild(masterChipPanel("企画担当", db.plannerRepsList, () => {
-      const v = prompt("企画担当名"); if (v && v.trim() && !db.plannerRepsList.includes(v.trim())) { db.plannerRepsList.push(v.trim()); db.save(); render(); }
-    }, "＋ 企画担当を追加"));
+    root.appendChild(customerContactsPanel());
+    root.appendChild(masterChipPanel("営業担当者", db.salesRepsList, () => {
+      const v = prompt("営業担当者名"); if (v && v.trim() && !db.salesRepsList.includes(v.trim())) { db.salesRepsList.push(v.trim()); db.save(); render(); }
+    }, "＋ 営業担当者を追加"));
+    root.appendChild(masterChipPanel("企画担当者", db.plannerRepsList, () => {
+      const v = prompt("企画担当者名"); if (v && v.trim() && !db.plannerRepsList.includes(v.trim())) { db.plannerRepsList.push(v.trim()); db.save(); render(); }
+    }, "＋ 企画担当者を追加"));
 
     // ■ データ
     root.appendChild(el("h2", { class: "section-title" }, "データ"));
@@ -1659,39 +1747,49 @@
   function backupPanel() {
     const o = loadAutoBak();
     const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">バックアップ</h3></div>`;
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">バックアップ</h3><span class="cell-sub">全データ（契約・企業・部署・顧客担当者・製品/ライセンス・契約形態・担当者・タスク）が対象</span></div>`;
     const body = el("div", { class: "panel-body", style: "padding:16px 18px" });
 
-    const row = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px" });
-    row.appendChild(buttonEl("バックアップを保存 (JSON)", "btn btn-sec", exportBackup));
-    row.appendChild(buttonEl("復元 (JSON)", "btn btn-sec", () => $("#restoreFile").click()));
+    // 手動
+    const row = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" });
+    row.appendChild(buttonEl("今すぐバックアップ (JSON)", "btn", exportBackup));
+    row.appendChild(buttonEl("ファイルから復元", "btn btn-sec", () => $("#restoreFile").click()));
     body.appendChild(row);
 
-    // 自動バックアップ トグル
-    const sw = el("label", { class: "switch-label", style: "margin-bottom:12px" });
+    // 自動バックアップ（変更時）
+    const sw = el("label", { class: "switch-label", style: "display:flex;margin-bottom:10px" });
     const chk = el("input", { type: "checkbox", checked: !!o.enabled });
     chk.addEventListener("change", () => { const x = loadAutoBak(); x.enabled = chk.checked; saveAutoBak(x); if (chk.checked) maybeAutoBackup(); render(); });
     sw.appendChild(chk);
-    sw.appendChild(document.createTextNode("自動バックアップを有効にする（変更時に自動保存・最新7件を保持）"));
+    sw.appendChild(document.createTextNode("自動バックアップ（変更のたびに自動保存）"));
     body.appendChild(sw);
 
-    // 自動バックアップ一覧
+    // 定期バックアップ（毎日/毎週）
+    const pRow = el("div", { class: "span-ctrl", style: "margin-bottom:16px" });
+    pRow.appendChild(el("span", { class: "span-label" }, "定期バックアップ"));
+    const pSel = el("select", { class: "select" });
+    [["off", "オフ"], ["daily", "毎日"], ["weekly", "毎週"]].forEach(([v, l]) => pSel.appendChild(el("option", { value: v, selected: (o.interval || "off") === v }, l)));
+    pSel.addEventListener("change", () => { const x = loadAutoBak(); x.interval = pSel.value; saveAutoBak(x); periodicBackupCheck(); render(); });
+    pRow.appendChild(pSel);
+    pRow.appendChild(el("span", { class: "cell-sub" }, "アプリを開いている間に自動保存"));
+    body.appendChild(pRow);
+
+    // スナップショット一覧（最新7件）
+    body.appendChild(el("div", { class: "section-title", style: "margin:6px 0 8px;font-size:12px" }, "保存済みバックアップ（最新7件）"));
     const list = el("div", { class: "table-wrap" });
     if (!o.snapshots || o.snapshots.length === 0) {
-      list.innerHTML = `<div class="cell-sub" style="padding:6px 0">自動バックアップはまだありません</div>`;
+      list.innerHTML = `<div class="cell-sub" style="padding:6px 0">まだありません</div>`;
     } else {
       const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>日時</th><th class="num">契約</th><th class="num">企業</th><th></th></tr></thead>`;
+      t.innerHTML = `<thead><tr><th>日時</th><th>種別</th><th class="num">契約</th><th class="num">企業</th><th></th></tr></thead>`;
       const tb = el("tbody");
-      o.snapshots.forEach((snap, i) => {
+      o.snapshots.forEach((snap) => {
         const r = el("tr");
-        r.innerHTML = `<td class="cell-strong">${esc(snap.at)}</td><td class="num">${(snap.data.contracts || []).length}</td><td class="num">${(snap.data.companies || []).length}</td>`;
+        r.innerHTML = `<td class="cell-strong">${esc(snap.at)}</td><td><span class="badge ${snap.kind === "定期" ? "upcoming" : "active"}">${esc(snap.kind || "自動")}</span></td><td class="num">${(snap.data.contracts || []).length}</td><td class="num">${(snap.data.companies || []).length}</td>`;
         const td = el("td");
         const wrap = el("div", { class: "row-actions" });
-        wrap.appendChild(buttonEl("復元", "btn-icon", () => {
-          if (!confirm(`${snap.at} の自動バックアップで現在のデータを置き換えます。よろしいですか?`)) return;
-          restoreFromData(snap.data);
-        }, "復元"));
+        wrap.appendChild(buttonEl("復元", "btn-icon", () => { if (confirm(`${snap.at} のバックアップで現在のデータを置き換えます。よろしいですか?`)) restoreFromData(snap.data); }, "復元"));
+        wrap.appendChild(buttonEl("DL", "btn-icon", () => downloadJSON(core.makeBackup(snap.data), `契約管理バックアップ_${snap.at.replace(/[\/: ]/g, "")}.json`), "ダウンロード"));
         td.appendChild(wrap); r.appendChild(td);
         tb.appendChild(r);
       });
@@ -1700,6 +1798,14 @@
     body.appendChild(list);
     panel.appendChild(body);
     return panel;
+  }
+
+  function downloadJSON(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: filename });
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function restoreFromData(data) {
@@ -2168,7 +2274,8 @@
         const name = prompt("顧客担当者名"); if (!name || !name.trim()) return;
         if (contacts.some((ct) => ct.name === name.trim())) return;
         const email = prompt("メールアドレス（任意）") || "";
-        contacts.push({ name: name.trim(), email: email.trim(), phone: "" });
+        const phone = prompt("電話番号（任意）") || "";
+        contacts.push({ name: name.trim(), email: email.trim(), phone: phone.trim() });
         renderContacts();
       }));
     };
@@ -2208,7 +2315,7 @@
     render();
   }
 
-  const SHORTCUT_VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "renewals", "settings"];
+  const SHORTCUT_VIEWS = ["dashboard", "gantt", "tasks", "contracts", "settings"];
   function handleShortcut(e) {
     if (e.key === "Escape") { closeModal(); return; }
     if (e.altKey || e.ctrlKey || e.metaKey) return;
@@ -2404,7 +2511,7 @@
   }
 
   const PREFS_KEY = "keiyaku_prefs";
-  const KNOWN_VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "renewals", "settings"];
+  const KNOWN_VIEWS = ["dashboard", "contracts", "gantt", "tasks", "settings"];
   function loadPrefs() {
     try {
       const raw = localStorage.getItem(PREFS_KEY);
@@ -2447,6 +2554,8 @@
     $("#restoreFile").addEventListener("change", (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ""; });
     const themeBtn = $("#btnTheme");
     if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+    periodicBackupCheck();
+    try { setInterval(periodicBackupCheck, 3600000); } catch (e) { /* noop */ }
     render();
   }
 

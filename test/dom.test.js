@@ -232,7 +232,7 @@ test("ガントのスケール切替(日/月/年)が効く", () => {
   assert.strictEqual(segBtns.length, 3);
   const dayBtn = segBtns.find((b) => b.textContent === "日");
   dayBtn.click();
-  assert.ok(doc.querySelector(".gantt.gantt-day"), "日スケールが適用される");
+  assert.ok(doc.querySelector(".gantt.tl-day"), "日スケールが適用される");
   assert.strictEqual(app.state.ganttScale, "day");
 });
 
@@ -297,10 +297,10 @@ test("契約一覧の CSV出力 ボタンが絞り込み結果を書き出す", 
   assert.ok(clicked, "ダウンロードがトリガーされる");
 });
 
-console.log("\n— 企業詳細 —");
-test("企業詳細にその企業の契約一覧と合計が表示される", () => {
+console.log("\n— 企業詳細（マスタ管理内）—");
+test("マスタ管理の企業・部署から企業詳細が開ける", () => {
   doc.querySelector("#modalClose").click();
-  doc.querySelector('.nav-item[data-view="companies"]').click();
+  doc.querySelector('.nav-item[data-view="settings"]').click();
   const detailBtn = [...doc.querySelectorAll("#content .row-actions button")].find((b) => b.title === "詳細");
   assert.ok(detailBtn, "企業の詳細ボタンがある");
   detailBtn.click();
@@ -314,8 +314,11 @@ console.log("\n— キーボードショートカット —");
 test("数字キーでビュー切替", () => {
   doc.querySelector("#modalClose").click();
   doc.querySelector('.nav-item[data-view="dashboard"]').click();
-  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "3", bubbles: true }));
+  // 並び: 1=dashboard, 2=gantt, 3=tasks, 4=contracts, 5=settings
+  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "2", bubbles: true }));
   assert.strictEqual(app.state.view, "gantt");
+  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "3", bubbles: true }));
+  assert.strictEqual(app.state.view, "tasks");
   doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "1", bubbles: true }));
   assert.strictEqual(app.state.view, "dashboard");
 });

@@ -31,7 +31,7 @@ window.console.error = (...a) => errors.push("console.error: " + a.join(" "));
 
 window.eval(appJs);
 const doc = window.document;
-const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "settings"];
+const VIEWS = ["dashboard", "contracts", "gantt", "tasks", "settings"];
 
 (async function main() {
   await new Promise((r) => { if (doc.readyState !== "loading") r(); else doc.addEventListener("DOMContentLoaded", () => r()); });
@@ -80,9 +80,9 @@ const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "setting
     assert.ok(doc.querySelector(".activity-add input"), "活動メモ入力欄");
     doc.querySelector("#modalClose").click();
   });
-  test("企業追加・企業詳細モーダル", () => {
-    doc.querySelector('.nav-item[data-view="companies"]').click();
-    [...doc.querySelectorAll("#topbarActions .btn")].find((b) => b.textContent.includes("企業")).click();
+  test("マスタ管理(企業・部署)から企業追加・企業詳細モーダル", () => {
+    doc.querySelector('.nav-item[data-view="settings"]').click();
+    [...doc.querySelectorAll("#content button")].find((b) => b.textContent.includes("企業を追加")).click();
     assert.strictEqual(doc.querySelector("#modalOverlay").hidden, false);
     doc.querySelector("#modalClose").click();
     const d = [...doc.querySelectorAll("#content .row-actions button")].find((b) => b.title === "詳細");
@@ -138,7 +138,7 @@ const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "setting
   test("月スケールでガント本体が描画される", () => {
     window.__app.state.ganttScale = "month";
     doc.querySelector('.nav-item[data-view="gantt"]').click();
-    assert.ok(doc.querySelector(".gantt-month.gantt"), "wrapにgantt-monthクラス");
+    assert.ok(doc.querySelector(".gantt.tl-month"), "wrapにtl-monthクラス");
     assert.ok(doc.querySelectorAll(".gantt-row").length >= 2, "行が描画される");
     assert.ok(doc.querySelectorAll(".gantt-tick").length > 0, "目盛りが描画される");
   });
