@@ -565,6 +565,9 @@ tr.row-cancelled { opacity: .55; }
 .gantt-tip .tip-main { font-weight: 600; margin-top: 4px; }
 .gantt-tip .tip-lic { color: var(--text-sub); font-weight: 500; }
 .gantt-tip .tip-line { margin-top: 3px; }
+.has-tip { cursor: help; }
+.kpi.has-tip:hover { box-shadow: var(--shadow-lg); }
+.stack-seg.has-tip { cursor: pointer; }
 
 /* ---------- セクション見出し / グループ見出し ---------- */
 .section-title {

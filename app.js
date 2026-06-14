@@ -783,6 +783,11 @@
       db.contracts.forEach((c) => (c.tags || []).forEach((t) => set.add(t)));
       return [...set].sort((a, b) => a.localeCompare(b, "ja"));
     },
+    allTaskTags() {
+      const set = new Set();
+      db.tasks.forEach((t) => (t.tags || []).forEach((x) => set.add(x)));
+      return [...set].sort((a, b) => a.localeCompare(b, "ja"));
+    },
   };
 
   const todayStr = () => {
@@ -847,7 +852,7 @@
      ============================================================ */
   function render() {
     document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === state.view));
-    const titles = { dashboard: "ダッシュボード", contracts: "契約一覧", gantt: "タイムライン", tasks: "更新タスク", settings: "マスタ管理" };
+    const titles = { dashboard: "ダッシュボード", contracts: "契約一覧", gantt: "タイムライン", tasks: "タスク一覧", settings: "マスタ管理" };
     if (!titles[state.view]) state.view = "dashboard";
     $("#pageTitle").textContent = titles[state.view] || "";
     updateTaskBadge();
@@ -877,6 +882,27 @@
   function distinctCompanies(list) {
     return new Set(list.map((c) => c.companyId)).size;
   }
+  function buildGroupTip(list, today, heading) {
+    const st = core.statusBreakdown(list, today).filter((x) => x.count > 0);
+    const amount = list.reduce((a, c) => a + core.contractAmount(c), 0);
+    const pm = {}; list.forEach((c) => { const p = c.productName || "(未設定)"; pm[p] = (pm[p] || 0) + 1; });
+    const topP = Object.entries(pm).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, q]) => `${esc(n)}×${q}`).join("、");
+    const cm = {}; list.forEach((c) => { cm[c.companyId] = (cm[c.companyId] || 0) + 1; });
+    const topC = Object.entries(cm).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, q]) => `${esc(db.companyName(id))}(${q})`).join("、");
+    const stLine = st.map((x) => `<span class="badge ${x.status}">${x.label}${x.count}</span>`).join(" ");
+    return `<div class="tip-co">${esc(heading)}</div>` +
+      `<div class="tip-line">件数 <strong>${list.length}</strong> ・ 企業 <strong>${distinctCompanies(list)}</strong> 社</div>` +
+      `<div class="tip-line">金額 <strong>${core.formatYen(amount)}</strong> <span class="tip-sub">税込 ${core.formatYen(core.taxIncluded(amount))}</span></div>` +
+      `<div class="tip-line">${stLine || "—"}</div>` +
+      `<div class="tip-line tip-sub">主な製品: ${topP || "—"}</div>` +
+      `<div class="tip-line tip-sub">主な企業: ${topC || "—"}</div>`;
+  }
+  function attachTip(node, htmlFn) {
+    node.classList.add("has-tip");
+    node.addEventListener("mouseenter", (e) => showTip(e, htmlFn()));
+    node.addEventListener("mousemove", moveGanttTip);
+    node.addEventListener("mouseleave", hideGanttTip);
+  }
   function renderDashboard(root) {
     const today = todayStr();
     const all = db.contracts;
@@ -897,6 +923,7 @@
       card("accent-blue", "▤", "累計契約数", `${all.length}<small>件</small>`) +
       card("accent-blue", "▣", "累計契約企業数", `${distinctCompanies(all)}<small>社</small>`);
     root.appendChild(g1);
+    g1.querySelectorAll(".kpi").forEach((c) => attachTip(c, () => buildGroupTip(all, today, "全体（すべての契約）")));
 
     // ■ 有効契約
     root.appendChild(el("h2", { class: "section-title" }, "有効契約"));
@@ -906,13 +933,20 @@
       card("accent-green", "✓", "有効契約数", `${activeList.length}<small>件</small>`) +
       card("accent-green", "▣", "有効契約企業数", `${distinctCompanies(activeList)}<small>社</small>`);
     root.appendChild(g2);
+    g2.querySelectorAll(".kpi").forEach((c) => attachTip(c, () => buildGroupTip(activeList, today, "有効契約（有効＋更新間近）")));
     if (all.length) {
       const bd = core.statusBreakdown(all, today).filter((x) => x.count > 0);
       const panel = el("div", { class: "panel" });
       panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">契約ステータス</h3><span style="color:var(--text-mute);font-weight:600">全${all.length}件</span></div>`;
       const body = el("div", { class: "panel-body", style: "padding:16px 18px" });
       const stack = el("div", { class: "stack-bar" });
-      bd.forEach((x) => { const seg = el("div", { class: "stack-seg st-" + x.status, title: `${x.label} ${x.count}件 (${x.pct}%)` }); seg.style.width = x.pct + "%"; stack.appendChild(seg); });
+      bd.forEach((x) => {
+        const seg = el("div", { class: "stack-seg st-" + x.status });
+        seg.style.width = x.pct + "%";
+        const amt = all.filter((c) => core.computeStatus(c, today) === x.status).reduce((a, c) => a + core.contractAmount(c), 0);
+        attachTip(seg, () => `<div class="tip-co">${x.label}</div><div class="tip-line">${x.count}件（${x.pct}%）</div><div class="tip-line">金額 <strong>${core.formatYen(amt)}</strong></div>`);
+        stack.appendChild(seg);
+      });
       body.appendChild(stack);
       const legend = el("div", { class: "stack-legend" });
       bd.forEach((x) => { legend.innerHTML += `<span class="stack-leg"><span class="dot st-${x.status}"></span>${x.label} <strong>${x.count}</strong> <span class="cell-sub">${x.pct}%</span></span>`; });
@@ -1542,7 +1576,8 @@
       chk.addEventListener("change", () => { tk.status = chk.checked ? "done" : "open"; db.save(); render(); });
       chkTd.appendChild(chk);
       row.appendChild(chkTd);
-      const td2 = el("td"); td2.innerHTML = `<div class="cell-strong"${tk.status === "done" ? ' style="text-decoration:line-through"' : ""}>${esc(tk.title)}</div>${tk.note ? `<div class="cell-sub">${esc(tk.note)}</div>` : ""}`; row.appendChild(td2);
+      const tagPills = (tk.tags || []).map((tg) => `<span class="tag-pill">${esc(tg)}</span>`).join(" ");
+      const td2 = el("td"); td2.innerHTML = `<div class="cell-strong"${tk.status === "done" ? ' style="text-decoration:line-through"' : ""}>${esc(tk.title)}</div>${tagPills ? `<div>${tagPills}</div>` : ""}${tk.note ? `<div class="cell-sub">${esc(tk.note)}</div>` : ""}`; row.appendChild(td2);
       const tc = tk.contractId ? db.contracts.find((x) => x.id === tk.contractId) : null;
       const td3 = el("td"); td3.innerHTML = tc ? `<div class="cell-sub">${esc(tc.productName || "")} ${esc(tc.licenseType || "")}</div>` : "—";
       if (tc) { td3.style.cursor = "pointer"; td3.addEventListener("click", () => openContractDetail(tc.id)); }
@@ -1563,8 +1598,8 @@
     const groups = {};
     list.forEach((tk) => {
       const c = tk.contractId ? db.contracts.find((x) => x.id === tk.contractId) : null;
-      const cid = c ? c.companyId : NONE;
-      const dept = c ? (c.department || "（部署なし）") : "（契約なし）";
+      const cid = c ? c.companyId : (tk.companyId || NONE);
+      const dept = c ? (c.department || "（部署なし）") : (tk.companyId ? "（企業タスク）" : "（契約なし）");
       groups[cid] = groups[cid] || {};
       (groups[cid][dept] = groups[cid][dept] || []).push(tk);
     });
@@ -1614,6 +1649,40 @@
     render();
   }
 
+  function openBulkTaskModal(companyIds) {
+    const ids = companyIds || [];
+    const grid = el("div", { class: "form-grid" });
+    const titleInput = el("input", { type: "text", placeholder: "例: セキュリティパッチ適用" });
+    const dueInput = el("input", { type: "date" });
+    const assigneeSel = el("select");
+    fillSelect(assigneeSel, db.allSalesReps(), "", "（任意）");
+    const tagsInput = el("input", { type: "text", value: "パッチ", placeholder: "カンマ区切り（例: パッチ, 改修）", list: "tasktaglist" });
+    const tdl = el("datalist", { id: "tasktaglist" });
+    ["契約", "パッチ", "改修", "アナウンス"].concat(db.allTaskTags()).forEach((tg, i, arr) => { if (arr.indexOf(tg) === i) tdl.appendChild(el("option", { value: tg })); });
+    const noteInput = el("textarea", { placeholder: "備考" });
+    const names = ids.map((id) => db.companyName(id)).join("、");
+    grid.appendChild(field("対象企業", el("input", { type: "text", value: names, disabled: true }), true));
+    grid.appendChild(field('タスク名 <span class="req">*</span>', titleInput, true));
+    grid.appendChild(field("期日", dueInput));
+    grid.appendChild(field("担当", assigneeSel));
+    const tgField = field("タグ", tagsInput, true); tgField.appendChild(tdl);
+    grid.appendChild(tgField);
+    grid.appendChild(field("備考", noteInput, true));
+    const foot = el("div");
+    foot.appendChild(buttonEl("キャンセル", "btn btn-sec", closeModal));
+    foot.appendChild(buttonEl(`${ids.length}社にタスク作成`, "btn", () => {
+      if (!titleInput.value.trim()) { titleInput.closest(".field").classList.add("invalid"); return; }
+      const tags = core.parseTags(tagsInput.value);
+      ids.forEach((cid) => db.tasks.push({
+        id: nextId("tk"), status: "open", companyId: cid, contractId: null,
+        title: titleInput.value.trim(), dueDate: dueInput.value, assignee: assigneeSel.value, tags, note: noteInput.value.trim(),
+      }));
+      db.save(); closeModal();
+      toast(`${ids.length}社にタスクを作成しました`, "success");
+      state.view = "tasks"; render();
+    }));
+    openModal("企業にタスクを一括追加", grid, foot);
+  }
   function openTaskModal(id) {
     const editing = db.tasks.find((t) => t.id === id);
     const tk = editing || { status: "open" };
@@ -1632,6 +1701,9 @@
     const contractInput = el("input", { type: "text", placeholder: "企業・製品で検索して選択" });
     contractInput.setAttribute("list", "taskcontracts");
     if (tk.contractId) { const c = db.contracts.find((x) => x.id === tk.contractId); if (c) contractInput.value = labelFor(c); }
+    const tagsInput = el("input", { type: "text", value: (tk.tags || []).join(", "), placeholder: "カンマ区切り（例: 契約, パッチ, 改修, アナウンス）", list: "tasktaglist" });
+    const tdl = el("datalist", { id: "tasktaglist" });
+    ["契約", "パッチ", "改修", "アナウンス"].concat(db.allTaskTags()).forEach((tg, i, arr) => { if (arr.indexOf(tg) === i) tdl.appendChild(el("option", { value: tg })); });
     const noteInput = el("textarea", { placeholder: "備考" });
     noteInput.value = tk.note || "";
 
@@ -1641,6 +1713,9 @@
     const cField = field("関連契約", contractInput, true);
     cField.appendChild(cdl);
     grid.appendChild(cField);
+    const tgField = field("タグ", tagsInput, true);
+    tgField.appendChild(tdl);
+    grid.appendChild(tgField);
     grid.appendChild(field("備考", noteInput, true));
 
     const foot = el("div");
@@ -1649,9 +1724,9 @@
       if (!titleInput.value.trim()) { titleInput.closest(".field").classList.add("invalid"); return; }
       const cv = contractInput.value.trim();
       const contractId = cv ? (contractMap[cv] || (tk.contractId && db.contracts.find((x) => x.id === tk.contractId && labelFor(x) === cv) ? tk.contractId : null)) : null;
-      const data = { title: titleInput.value.trim(), dueDate: dueInput.value, assignee: assigneeSel.value, contractId, note: noteInput.value.trim() };
+      const data = { title: titleInput.value.trim(), dueDate: dueInput.value, assignee: assigneeSel.value, contractId, tags: core.parseTags(tagsInput.value), note: noteInput.value.trim() };
       if (editing) { Object.assign(editing, data); toast("タスクを更新しました", "success"); }
-      else { db.tasks.push({ id: nextId("tk"), status: "open", ...data }); toast("タスクを登録しました", "success"); }
+      else { db.tasks.push({ id: nextId("tk"), status: "open", companyId: tk.companyId || null, ...data }); toast("タスクを登録しました", "success"); }
       db.save(); closeModal(); render();
     }));
     openModal(editing ? "タスクを編集" : "タスクを追加", grid, foot);
@@ -1729,6 +1804,11 @@
       sortSel.appendChild(el("option", { value: v, selected: sort === v }, l)));
     sortSel.addEventListener("change", (e) => { state.companyFilter.sort = e.target.value; render(); });
     bar.appendChild(sortSel);
+    bar.appendChild(buttonEl("✔ 選択企業にタスク追加", "btn btn-sec", () => {
+      const ids = [...document.querySelectorAll(".company-check:checked")].map((x) => x.dataset.cid);
+      if (!ids.length) { toast("企業を選択してください", "error"); return; }
+      openBulkTaskModal(ids);
+    }));
     root.appendChild(bar);
 
     const panel = el("div", { class: "panel" });
@@ -1737,7 +1817,7 @@
       body.innerHTML = `<div class="empty"><div class="empty-ico">▣</div><div class="empty-title">${db.companies.length ? "該当する企業がありません" : "企業が登録されていません"}</div></div>`;
     } else {
       const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>企業</th><th>部署</th><th class="num">契約数</th><th class="num">金額</th><th>営業担当</th><th>企画担当</th><th>顧客担当者</th><th class="num">要対応</th><th></th></tr></thead>`;
+      t.innerHTML = `<thead><tr><th></th><th>企業</th><th>部署</th><th class="num">契約数</th><th class="num">金額</th><th>営業担当</th><th>企画担当</th><th>顧客担当者</th><th class="num">要対応</th><th></th></tr></thead>`;
       const tb = el("tbody");
       const join = (arr) => arr.join("、") || "—";
       rows.forEach((r) => {
@@ -1753,18 +1833,26 @@
           const alert = list.filter((c) => ["expiring", "expired"].includes(core.computeStatus(c, today))).length;
           const first = idx === 0;
           const row = el("tr", { class: first ? "company-first" : "" });
-          row.innerHTML = `
-            <td class="cell-strong">${first ? esc(co.name) : ""}</td>
-            <td>${esc(d)}</td>
-            <td class="num">${list.length}</td>
-            <td class="num">${core.formatYen(amount)}</td>
-            <td class="cell-sub">${esc(join(uniq(list.map((c) => c.salesRep))))}</td>
-            <td class="cell-sub">${esc(join(uniq(list.map((c) => c.plannerRep))))}</td>
-            <td class="cell-sub">${first ? esc(join(r.contacts)) : ""}</td>
-            <td class="num">${alert ? `<span class="days-left warn">${alert}</span>` : "0"}</td>`;
+          const chkTd = el("td");
+          if (first) {
+            const chk = el("input", { type: "checkbox", class: "company-check", style: "width:auto;cursor:pointer" });
+            chk.dataset.cid = co.id;
+            chkTd.appendChild(chk);
+          }
+          row.appendChild(chkTd);
+          row.insertAdjacentHTML("beforeend",
+            `<td class="cell-strong">${first ? esc(co.name) : ""}</td>` +
+            `<td>${esc(d)}</td>` +
+            `<td class="num">${list.length}</td>` +
+            `<td class="num">${core.formatYen(amount)}</td>` +
+            `<td class="cell-sub">${esc(join(uniq(list.map((c) => c.salesRep))))}</td>` +
+            `<td class="cell-sub">${esc(join(uniq(list.map((c) => c.plannerRep))))}</td>` +
+            `<td class="cell-sub">${first ? esc(join(r.contacts)) : ""}</td>` +
+            `<td class="num">${alert ? `<span class="days-left warn">${alert}</span>` : "0"}</td>`);
           const td = el("td");
           if (first) {
             const wrap = el("div", { class: "row-actions" });
+            wrap.appendChild(buttonEl("タスク", "btn-icon", () => openBulkTaskModal([co.id]), "この企業にタスク追加"));
             wrap.appendChild(buttonEl("詳細", "btn-icon", () => openCompanyDetail(co.id), "詳細"));
             wrap.appendChild(buttonEl("✎", "btn-icon", () => openCompanyModal(co.id), "編集"));
             wrap.appendChild(buttonEl("🗑", "btn-icon", () => deleteCompany(co.id), "削除"));
