@@ -568,12 +568,18 @@ tr.company-first > td { border-top: 2px solid var(--border); }
 
 /* ---------- マスタ製品アコーディオン ---------- */
 .master-prod { border-bottom: 1px solid var(--border); }
-.master-prod-head { cursor: pointer; list-style: none; }
+.master-prod-head {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  padding: 11px 4px; margin-bottom: 0;
+}
 .master-prod-head::-webkit-details-marker { display: none; }
-.master-prod-head::before { content: "▸"; color: var(--text-mute); margin-right: 8px; font-size: 11px; }
+.master-prod-head::before { content: "▸"; color: var(--text-mute); font-size: 11px; }
 .master-prod[open] > .master-prod-head::before { content: "▾"; }
+.master-prod-head:hover { background: var(--surface-2); }
+.master-prod-name { font-size: 14px; font-weight: 700; }
 .master-prod-count {
-  margin-left: 8px; background: var(--slate-soft); color: var(--text-sub);
+  margin-left: auto; background: var(--slate-soft); color: var(--text-sub);
   font-size: 11px; border-radius: 10px; padding: 1px 8px; font-weight: 600;
 }
 .master-prod-body { padding: 8px 0 14px 22px; }
