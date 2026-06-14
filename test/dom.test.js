@@ -398,9 +398,10 @@ test("ダッシュボードにステータス構成バーが描画される", ()
   assert.ok(doc.querySelector(".stack-seg"), "セグメントがある");
 });
 
-console.log("\n— CSV エクスポート —");
-test("エクスポートでエラーが起きない", () => {
+console.log("\n— CSV エクスポート (マスタ管理内) —");
+test("マスタ管理のエクスポートでエラーが起きない", () => {
   doc.querySelector("#modalClose").click();
+  doc.querySelector('.nav-item[data-view="settings"]').click();
   let clicked = false;
   const origCreate = doc.createElement.bind(doc);
   doc.createElement = function (tag) {
@@ -408,9 +409,17 @@ test("エクスポートでエラーが起きない", () => {
     if (tag === "a") n.click = () => { clicked = true; };
     return n;
   };
-  doc.querySelector("#btnExport").click();
+  const btn = [...doc.querySelectorAll("#content button")].find((b) => b.textContent.includes("エクスポート"));
+  assert.ok(btn, "設定内にエクスポートボタンがある");
+  btn.click();
   doc.createElement = origCreate;
   assert.ok(clicked, "ダウンロードがトリガーされる");
+});
+test("マスタ管理に自動バックアップ設定がある", () => {
+  const txt = doc.querySelector("#content").textContent;
+  assert.ok(txt.includes("バックアップ"));
+  assert.ok(txt.includes("自動バックアップ"));
+  assert.ok(txt.includes("データ"));
 });
 
 console.log(`\n結果: ${passed} passed, ${failed} failed\n`);

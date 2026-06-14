@@ -127,6 +127,7 @@
           case "company": return nameById[c.companyId] || "";
           case "department": return c.department || "";
           case "product": return (c.productName || "") + (c.licenseType || "");
+          case "billing": return c.billingType || "";
           case "licenseType": return c.licenseType || "";
           case "salesRep": return c.salesRep || "";
           case "quantity": return Number(c.quantity) || 0;
@@ -562,6 +563,27 @@
      ============================================================ */
 
   const STORE_KEY = "keiyaku_kanri_v1";
+  const AUTOBAK_KEY = "keiyaku_autobak";
+  const AUTOBAK_MAX = 7;          // 保持する自動バックアップ数
+  const AUTOBAK_THROTTLE = 300000; // 5分に1回まで
+
+  function loadAutoBak() {
+    try { return JSON.parse(localStorage.getItem(AUTOBAK_KEY)) || { enabled: false, snapshots: [], lastAt: 0 }; }
+    catch (e) { return { enabled: false, snapshots: [], lastAt: 0 }; }
+  }
+  function saveAutoBak(o) { try { localStorage.setItem(AUTOBAK_KEY, JSON.stringify(o)); } catch (e) { /* noop */ } }
+  function maybeAutoBackup() {
+    const o = loadAutoBak();
+    if (!o.enabled) return;
+    const now = Date.now();
+    if (o.snapshots.length && now - (o.lastAt || 0) < AUTOBAK_THROTTLE) return;
+    const d = new Date();
+    const at = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    o.snapshots.unshift({ at, data: core.makeBackup(db).data });
+    o.snapshots = o.snapshots.slice(0, AUTOBAK_MAX);
+    o.lastAt = now;
+    saveAutoBak(o);
+  }
   let idCounter = Date.now();
   const nextId = (p) => core.makeId(p, idCounter++);
 
@@ -605,6 +627,7 @@
         salesRepsList: db.salesRepsList, plannerRepsList: db.plannerRepsList,
         billingTypes: db.billingTypes, tasks: db.tasks,
       }));
+      maybeAutoBackup();
     },
     companyName(id) {
       const c = db.companies.find((x) => x.id === id);
@@ -647,9 +670,11 @@
     ganttScale: "month",
     ganttGroup: true,
     ganttUnits: { day: 35, month: 15, year: 4 },
+    ganttAnchor: "",
     taskFilter: "open",
     companyFilter: { keyword: "", sort: "name" },
     alertFilter: "all",
+    contractGroup: true,
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -961,6 +986,13 @@
       bar.appendChild(tagSel);
     }
 
+    const grpWrap = el("label", { class: "switch-label" });
+    const grpChk = el("input", { type: "checkbox", checked: state.contractGroup });
+    grpChk.addEventListener("change", () => { state.contractGroup = grpChk.checked; refreshContractTable(); });
+    grpWrap.appendChild(grpChk);
+    grpWrap.appendChild(document.createTextNode("企業・部署でグループ化"));
+    bar.appendChild(grpWrap);
+
     bar.appendChild(buttonEl("CSV出力", "btn-sec", () => {
       const today = todayStr();
       let list = core.filterContracts(db.contracts, db.companies, { ...state.filter, today });
@@ -986,7 +1018,28 @@
       body.innerHTML = `<div class="empty"><div class="empty-ico">▤</div><div class="empty-title">該当する契約がありません</div></div>`;
       return;
     }
-    body.appendChild(contractsTable(list, true));
+    if (state.contractGroup) {
+      // 企業 → 部署 → 製品 → ライセンス でグルーピング
+      const byCompany = {};
+      list.forEach((c) => { (byCompany[c.companyId] = byCompany[c.companyId] || []).push(c); });
+      Object.keys(byCompany)
+        .sort((a, b) => db.companyName(a).localeCompare(db.companyName(b), "ja"))
+        .forEach((cid) => {
+          const cs = byCompany[cid];
+          const head = el("div", { class: "group-head" });
+          head.innerHTML = `<span>${esc(db.companyName(cid))}</span><span class="gantt-group-count">${cs.length}</span>`;
+          body.appendChild(head);
+          const byDept = {};
+          cs.forEach((c) => { const d = c.department || "（部署なし）"; (byDept[d] = byDept[d] || []).push(c); });
+          Object.keys(byDept).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
+            body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
+            const dl = byDept[dept].sort((a, b) => (a.productName || "").localeCompare(b.productName || "", "ja") || (a.licenseType || "").localeCompare(b.licenseType || "", "ja"));
+            body.appendChild(contractsTable(dl, true));
+          });
+        });
+    } else {
+      body.appendChild(contractsTable(list, true));
+    }
     const t = core.totals(list);
     const foot = el("div", { class: "table-total" });
     foot.innerHTML = `<span>${t.count}件</span><span>金額合計 <strong>${core.formatYen(t.amount)}</strong></span><span class="cell-sub">税込 ${core.formatYen(t.taxIncluded)}</span>`;
@@ -999,9 +1052,10 @@
       ["contractNo", "契約番号"],
       ["company", "企業 / 部署"],
       ["product", "製品 / ライセンス"],
+      ["billing", "契約形態"],
       ["quantity", "数量", "num"],
       ["amount", "金額", "num"],
-      ["salesRep", "担当営業"],
+      ["salesRep", "営業担当"],
       ["endDate", "終了日"],
       ["daysLeft", "残日数"],
       ["status", "状態"],
@@ -1026,6 +1080,7 @@
         <td class="cell-sub">${esc(c.contractNo || "—")}</td>
         <td><div class="cell-strong">${esc(db.companyName(c.companyId))}</div><div class="cell-sub">${esc(c.department || "—")}</div></td>
         <td><div class="cell-strong">${esc(c.productName || "—")}</div><div class="cell-sub">${esc(c.licenseType || "—")}</div></td>
+        <td>${esc(c.billingType || "—")}</td>
         <td class="num">${Number(c.quantity) || 0}</td>
         <td class="num">${core.formatYen(core.contractAmount(c))}</td>
         <td>${esc(c.salesRep || "—")}</td>
@@ -1060,7 +1115,8 @@
   function renderGantt(root, actions) {
     actions.appendChild(buttonEl("+ 契約を追加", "btn", () => openContractModal()));
     const today = todayStr();
-    const axis = core.ganttAxis(state.ganttScale, today, state.ganttUnits[state.ganttScale]);
+    const anchor = state.ganttAnchor || today;
+    const axis = core.ganttAxis(state.ganttScale, anchor, state.ganttUnits[state.ganttScale]);
 
     // ツールバー（スケール切替 + 表示期間 + グループ化 + 状態の凡例）
     const bar = el("div", { class: "toolbar" });
@@ -1072,16 +1128,35 @@
     });
     bar.appendChild(seg);
 
-    // 表示期間（スケールごとに選択肢を変える）
-    const spanOpts = {
-      day: [[14, "2週間"], [35, "5週間"], [56, "8週間"], [91, "13週間"]],
-      month: [[6, "6ヶ月"], [12, "12ヶ月"], [15, "15ヶ月"], [24, "24ヶ月"], [36, "36ヶ月"]],
-      year: [[2, "2年"], [4, "4年"], [6, "6年"], [10, "10年"]],
-    }[state.ganttScale];
-    const spanSel = el("select", { class: "select" });
-    spanOpts.forEach(([v, l]) => spanSel.appendChild(el("option", { value: v, selected: state.ganttUnits[state.ganttScale] === v }, l)));
-    spanSel.addEventListener("change", (e) => { state.ganttUnits[state.ganttScale] = Number(e.target.value); render(); });
-    bar.appendChild(spanSel);
+    // 表示期間（数値入力 + スライダーで自由調整）
+    const spanCfg = { day: { min: 7, max: 180, unit: "日" }, month: { min: 3, max: 48, unit: "ヶ月" }, year: { min: 2, max: 15, unit: "年" } }[state.ganttScale];
+    const curUnits = state.ganttUnits[state.ganttScale];
+    const spanWrap = el("div", { class: "span-ctrl" });
+    spanWrap.appendChild(el("span", { class: "span-label" }, "表示期間"));
+    const range = el("input", { type: "range", min: spanCfg.min, max: spanCfg.max, value: curUnits, class: "span-range" });
+    const num = el("input", { type: "number", min: spanCfg.min, max: spanCfg.max, value: curUnits, class: "span-num" });
+    const unitLbl = el("span", { class: "span-unit" }, spanCfg.unit);
+    const applySpan = (v) => {
+      let n = Math.max(spanCfg.min, Math.min(spanCfg.max, Number(v) || spanCfg.min));
+      state.ganttUnits[state.ganttScale] = n;
+      render();
+    };
+    range.addEventListener("input", () => { num.value = range.value; });
+    range.addEventListener("change", () => applySpan(range.value));
+    num.addEventListener("change", () => applySpan(num.value));
+    spanWrap.appendChild(range);
+    spanWrap.appendChild(num);
+    spanWrap.appendChild(unitLbl);
+    bar.appendChild(spanWrap);
+
+    // 基準日（過去・未来へ表示をずらす）
+    const anchorWrap = el("div", { class: "span-ctrl" });
+    anchorWrap.appendChild(el("span", { class: "span-label" }, "基準日"));
+    const anchorInput = el("input", { type: "date", class: "select", value: anchor });
+    anchorInput.addEventListener("change", () => { state.ganttAnchor = anchorInput.value || ""; render(); });
+    anchorWrap.appendChild(anchorInput);
+    anchorWrap.appendChild(buttonEl("今日", "btn-sec btn-sm", () => { state.ganttAnchor = ""; render(); }));
+    bar.appendChild(anchorWrap);
     const grpWrap = el("label", { class: "switch-label" });
     const grpChk = el("input", { type: "checkbox", checked: state.ganttGroup });
     grpChk.addEventListener("change", () => { state.ganttGroup = grpChk.checked; render(); });
@@ -1500,9 +1575,9 @@
   }
 
   function renderSettings(root) {
-    // 製品・ライセンス
+    // ■ 製品・ライセンス
+    root.appendChild(el("h2", { class: "section-title" }, "製品・ライセンス"));
     const pPanel = el("div", { class: "panel" });
-    pPanel.innerHTML = `<div class="panel-head"><h3 class="panel-title">製品・ライセンス</h3></div>`;
     const pBody = el("div", { class: "panel-body", style: "padding:16px 18px" });
     // 製品が増えても探しやすいよう検索
     const psearch = el("div", { class: "search", style: "margin-bottom:14px" });
@@ -1550,20 +1625,97 @@
     pPanel.appendChild(pBody);
     root.appendChild(pPanel);
 
-    // 契約形態
-    root.appendChild(masterChipPanel("契約形態", db.billingTypes, () => {
-      const v = prompt("契約形態（例: 年額, 月額, 従量課金）"); if (v && v.trim() && !db.billingTypes.includes(v.trim())) { db.billingTypes.push(v.trim()); db.save(); render(); }
-    }, "＋ 契約形態を追加"));
+    // ■ 契約
+    root.appendChild(el("h2", { class: "section-title" }, "契約"));
+    root.appendChild(masterChipPanel("契約体系", db.billingTypes, () => {
+      const v = prompt("契約体系（例: 年額, 月額, 従量課金）"); if (v && v.trim() && !db.billingTypes.includes(v.trim())) { db.billingTypes.push(v.trim()); db.save(); render(); }
+    }, "＋ 契約体系を追加"));
 
-    // 営業担当
+    // ■ 担当者
+    root.appendChild(el("h2", { class: "section-title" }, "担当者"));
     root.appendChild(masterChipPanel("営業担当", db.salesRepsList, () => {
       const v = prompt("営業担当名"); if (v && v.trim() && !db.salesRepsList.includes(v.trim())) { db.salesRepsList.push(v.trim()); db.save(); render(); }
     }, "＋ 営業担当を追加"));
-
-    // 企画担当
     root.appendChild(masterChipPanel("企画担当", db.plannerRepsList, () => {
       const v = prompt("企画担当名"); if (v && v.trim() && !db.plannerRepsList.includes(v.trim())) { db.plannerRepsList.push(v.trim()); db.save(); render(); }
     }, "＋ 企画担当を追加"));
+
+    // ■ データ
+    root.appendChild(el("h2", { class: "section-title" }, "データ"));
+    const dPanel = el("div", { class: "panel" });
+    const dBody = el("div", { class: "panel-body", style: "padding:16px 18px;display:flex;gap:8px;flex-wrap:wrap" });
+    dBody.appendChild(buttonEl("エクスポート (CSV)", "btn btn-sec", () => exportCSV()));
+    dBody.appendChild(buttonEl("インポート (CSV)", "btn btn-sec", () => $("#importFile").click()));
+    dBody.appendChild(buttonEl("テンプレートDL", "btn btn-sec", downloadTemplate));
+    dBody.appendChild(buttonEl("サンプル投入", "btn btn-sec", seedData));
+    dPanel.appendChild(dBody);
+    root.appendChild(dPanel);
+
+    // ■ バックアップ
+    root.appendChild(el("h2", { class: "section-title" }, "バックアップ"));
+    root.appendChild(backupPanel());
+  }
+
+  function backupPanel() {
+    const o = loadAutoBak();
+    const panel = el("div", { class: "panel" });
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">バックアップ</h3></div>`;
+    const body = el("div", { class: "panel-body", style: "padding:16px 18px" });
+
+    const row = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px" });
+    row.appendChild(buttonEl("バックアップを保存 (JSON)", "btn btn-sec", exportBackup));
+    row.appendChild(buttonEl("復元 (JSON)", "btn btn-sec", () => $("#restoreFile").click()));
+    body.appendChild(row);
+
+    // 自動バックアップ トグル
+    const sw = el("label", { class: "switch-label", style: "margin-bottom:12px" });
+    const chk = el("input", { type: "checkbox", checked: !!o.enabled });
+    chk.addEventListener("change", () => { const x = loadAutoBak(); x.enabled = chk.checked; saveAutoBak(x); if (chk.checked) maybeAutoBackup(); render(); });
+    sw.appendChild(chk);
+    sw.appendChild(document.createTextNode("自動バックアップを有効にする（変更時に自動保存・最新7件を保持）"));
+    body.appendChild(sw);
+
+    // 自動バックアップ一覧
+    const list = el("div", { class: "table-wrap" });
+    if (!o.snapshots || o.snapshots.length === 0) {
+      list.innerHTML = `<div class="cell-sub" style="padding:6px 0">自動バックアップはまだありません</div>`;
+    } else {
+      const t = el("table", { class: "data" });
+      t.innerHTML = `<thead><tr><th>日時</th><th class="num">契約</th><th class="num">企業</th><th></th></tr></thead>`;
+      const tb = el("tbody");
+      o.snapshots.forEach((snap, i) => {
+        const r = el("tr");
+        r.innerHTML = `<td class="cell-strong">${esc(snap.at)}</td><td class="num">${(snap.data.contracts || []).length}</td><td class="num">${(snap.data.companies || []).length}</td>`;
+        const td = el("td");
+        const wrap = el("div", { class: "row-actions" });
+        wrap.appendChild(buttonEl("復元", "btn-icon", () => {
+          if (!confirm(`${snap.at} の自動バックアップで現在のデータを置き換えます。よろしいですか?`)) return;
+          restoreFromData(snap.data);
+        }, "復元"));
+        td.appendChild(wrap); r.appendChild(td);
+        tb.appendChild(r);
+      });
+      t.appendChild(tb); list.appendChild(t);
+    }
+    body.appendChild(list);
+    panel.appendChild(body);
+    return panel;
+  }
+
+  function restoreFromData(data) {
+    try {
+      const d = core.parseBackup(JSON.stringify({ data }));
+      db.companies = d.companies; db.contracts = d.contracts;
+      db.products = d.products.length ? d.products : core.defaultProducts();
+      db.salesRepsList = d.salesRepsList.length ? d.salesRepsList : core.defaultSalesReps();
+      db.plannerRepsList = d.plannerRepsList.length ? d.plannerRepsList : core.defaultPlannerReps();
+      db.billingTypes = d.billingTypes.length ? d.billingTypes : core.defaultBillingTypes();
+      db.tasks = d.tasks;
+      db.companies.forEach((co) => { if (!Array.isArray(co.departments)) co.departments = []; if (!Array.isArray(co.contacts)) co.contacts = []; });
+      db.save();
+      toast("復元しました", "success");
+      render();
+    } catch (e) { console.error(e); toast("復元に失敗しました", "error"); }
   }
 
   /* ============================================================
@@ -2264,6 +2416,7 @@
       if (["day", "month", "year"].includes(p.ganttScale)) state.ganttScale = p.ganttScale;
       if (typeof p.ganttGroup === "boolean") state.ganttGroup = p.ganttGroup;
       if (p.ganttUnits && typeof p.ganttUnits === "object") Object.assign(state.ganttUnits, p.ganttUnits);
+      if (typeof p.contractGroup === "boolean") state.contractGroup = p.contractGroup;
       if (p.taskFilter) state.taskFilter = p.taskFilter;
       if (p.companyFilter && typeof p.companyFilter === "object") Object.assign(state.companyFilter, p.companyFilter);
     } catch (e) { /* noop */ }
@@ -2273,7 +2426,7 @@
       localStorage.setItem(PREFS_KEY, JSON.stringify({
         view: state.view, filter: state.filter, sort: state.sort,
         ganttScale: state.ganttScale, ganttGroup: state.ganttGroup, ganttUnits: state.ganttUnits,
-        taskFilter: state.taskFilter, companyFilter: state.companyFilter,
+        contractGroup: state.contractGroup, taskFilter: state.taskFilter, companyFilter: state.companyFilter,
       }));
     } catch (e) { /* noop */ }
   }
@@ -2289,18 +2442,9 @@
     $("#modalClose").addEventListener("click", closeModal);
     $("#modalOverlay").addEventListener("click", (e) => { if (e.target.id === "modalOverlay") closeModal(); });
     document.addEventListener("keydown", handleShortcut);
-    $("#btnExport").addEventListener("click", () => exportCSV());
-    $("#btnImport").addEventListener("click", () => $("#importFile").click());
+    // データ/バックアップ操作はマスタ管理画面に集約。隠しファイル入力のみ常設。
     $("#importFile").addEventListener("change", (e) => { if (e.target.files[0]) importCSV(e.target.files[0]); e.target.value = ""; });
-    $("#btnSeed").addEventListener("click", seedData);
-    const tmpl = $("#btnTemplate");
-    if (tmpl) tmpl.addEventListener("click", downloadTemplate);
-    const bkp = $("#btnBackup");
-    if (bkp) bkp.addEventListener("click", exportBackup);
-    const rst = $("#btnRestore");
-    if (rst) rst.addEventListener("click", () => $("#restoreFile").click());
-    const rstFile = $("#restoreFile");
-    if (rstFile) rstFile.addEventListener("change", (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ""; });
+    $("#restoreFile").addEventListener("change", (e) => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ""; });
     const themeBtn = $("#btnTheme");
     if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
     render();

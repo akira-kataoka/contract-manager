@@ -37,8 +37,10 @@ const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "setting
   await new Promise((r) => { if (doc.readyState !== "loading") r(); else doc.addEventListener("DOMContentLoaded", () => r()); });
   const app = window.__app;
 
-  // サンプルデータを投入（全パネル/ガント/タスクを埋める）
-  doc.querySelector("#btnSeed").click();
+  // サンプルデータを投入（マスタ管理画面のボタン経由）
+  doc.querySelector('.nav-item[data-view="settings"]').click();
+  const seedBtn = [...doc.querySelectorAll("#content button")].find((b) => b.textContent.includes("サンプル投入"));
+  if (seedBtn) seedBtn.click();
   // タスク自動生成
   doc.querySelector('.nav-item[data-view="tasks"]').click();
   const gen = [...doc.querySelectorAll("#topbarActions button")].find((b) => b.textContent.includes("自動生成"));
