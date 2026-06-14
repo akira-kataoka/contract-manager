@@ -438,6 +438,34 @@ test("既定の契約形態に年額/月額/従量課金を含む", () => {
   ["年額", "月額", "従量課金"].forEach((t) => assert.ok(b.includes(t), t + " が無い"));
 });
 
+console.log("\n— マスタ別CSV —");
+test("製品CSV ラウンドトリップ", () => {
+  const ps = [{ name: "Salesforce", description: "CRM", color: "#00A1E0", licenses: ["Sales Cloud", "Service Cloud"] }, { name: "Box", description: "", color: "", licenses: [] }];
+  const parsed = core.parseProductsCSV(core.productsToCSV(ps));
+  assert.strictEqual(parsed.length, 2);
+  const sf = parsed.find((p) => p.name === "Salesforce");
+  assert.deepStrictEqual(sf.licenses, ["Sales Cloud", "Service Cloud"]);
+  assert.strictEqual(sf.description, "CRM");
+});
+test("担当者CSV ラウンドトリップ（区分で振り分け）", () => {
+  const csv = core.repsToCSV([{ name: "田中", email: "t@e.com", teams: "https://t" }], [{ name: "山本", email: "", teams: "" }]);
+  const r = core.parseRepsCSV(csv);
+  assert.strictEqual(r.sales.length, 1);
+  assert.strictEqual(r.sales[0].email, "t@e.com");
+  assert.strictEqual(r.planners[0].name, "山本");
+});
+test("契約形態リストCSV", () => {
+  const csv = core.listToCSV("契約形態", ["年額", "月額"]);
+  assert.deepStrictEqual(core.parseListCSV(csv), ["年額", "月額"]);
+});
+test("企業・部署CSV ラウンドトリップ", () => {
+  const cos = [{ name: "A社", note: "重要", departments: ["営業部", "情シス部"] }];
+  const parsed = core.parseCompaniesCSV(core.companiesToCSV(cos));
+  assert.strictEqual(parsed[0].name, "A社");
+  assert.deepStrictEqual(parsed[0].departments, ["営業部", "情シス部"]);
+  assert.strictEqual(parsed[0].note, "重要");
+});
+
 console.log("\n— バックアップ —");
 test("makeBackup → parseBackup でラウンドトリップ", () => {
   const data = { companies: [{ id: "co1", name: "A" }], contracts: [{ id: "c1" }, { id: "c2" }], products: [{ id: "p", name: "X", licenses: [] }], salesRepsList: ["田中"], tasks: [{ id: "t1" }] };

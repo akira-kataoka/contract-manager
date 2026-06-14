@@ -503,6 +503,79 @@
       return rows.filter((r) => r.length && r.some((x) => x !== ""));
     },
 
+    /* ---------- マスタ別 CSV ---------- */
+    productsToCSV(products) {
+      const rows = [["製品", "ライセンス", "説明", "色"].join(",")];
+      (products || []).forEach((p) => {
+        const lics = p.licenses && p.licenses.length ? p.licenses : [""];
+        lics.forEach((l) => rows.push([p.name, l, p.description || "", p.color || ""].map(core.csvEscape).join(",")));
+      });
+      return rows.join("\r\n");
+    },
+    parseProductsCSV(text) {
+      const rows = core.parseCSV(String(text).replace(/^﻿/, ""));
+      if (rows.length < 2) return [];
+      const h = rows[0]; const gi = (n) => h.indexOf(n);
+      const map = {};
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; const g = (n) => { const j = gi(n); return j >= 0 ? (r[j] || "").trim() : ""; };
+        const name = g("製品"); if (!name) continue;
+        if (!map[name]) map[name] = { name, description: "", color: "", licenses: [] };
+        const lic = g("ライセンス"); if (lic && !map[name].licenses.includes(lic)) map[name].licenses.push(lic);
+        if (g("説明")) map[name].description = g("説明");
+        if (g("色")) map[name].color = g("色");
+      }
+      return Object.values(map);
+    },
+    repsToCSV(sales, planners) {
+      const rows = [["区分", "氏名", "メール", "Teams"].join(",")];
+      const add = (kind, list) => (list || []).forEach((r) => { const o = typeof r === "string" ? { name: r } : r; rows.push([kind, o.name, o.email || "", o.teams || ""].map(core.csvEscape).join(",")); });
+      add("営業", sales); add("企画", planners);
+      return rows.join("\r\n");
+    },
+    parseRepsCSV(text) {
+      const rows = core.parseCSV(String(text).replace(/^﻿/, ""));
+      const out = { sales: [], planners: [] };
+      if (rows.length < 2) return out;
+      const h = rows[0]; const gi = (n) => h.indexOf(n);
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; const g = (n) => { const j = gi(n); return j >= 0 ? (r[j] || "").trim() : ""; };
+        const name = g("氏名"); if (!name) continue;
+        const rep = { name, email: g("メール"), teams: g("Teams") };
+        (g("区分") === "企画" ? out.planners : out.sales).push(rep);
+      }
+      return out;
+    },
+    listToCSV(header, list) {
+      return [header].concat((list || []).map((v) => core.csvEscape(v))).join("\r\n");
+    },
+    parseListCSV(text) {
+      const rows = core.parseCSV(String(text).replace(/^﻿/, ""));
+      return rows.slice(1).map((r) => (r[0] || "").trim()).filter(Boolean);
+    },
+    companiesToCSV(companies) {
+      const rows = [["企業", "部署", "備考"].join(",")];
+      (companies || []).forEach((co) => {
+        const depts = (co.departments && co.departments.length) ? co.departments : [""];
+        depts.forEach((d) => rows.push([co.name, d, co.note || ""].map(core.csvEscape).join(",")));
+      });
+      return rows.join("\r\n");
+    },
+    parseCompaniesCSV(text) {
+      const rows = core.parseCSV(String(text).replace(/^﻿/, ""));
+      if (rows.length < 2) return [];
+      const h = rows[0]; const gi = (n) => h.indexOf(n);
+      const map = {};
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; const g = (n) => { const j = gi(n); return j >= 0 ? (r[j] || "").trim() : ""; };
+        const name = g("企業"); if (!name) continue;
+        if (!map[name]) map[name] = { name, departments: [], note: "" };
+        const d = g("部署"); if (d && !map[name].departments.includes(d)) map[name].departments.push(d);
+        if (g("備考")) map[name].note = g("備考");
+      }
+      return Object.values(map);
+    },
+
     makeId(prefix, seed) {
       return `${prefix}_${seed.toString(36)}`;
     },
@@ -1768,6 +1841,54 @@
     return panel;
   }
 
+  function pickCsv(cb) {
+    const inp = el("input", { type: "file", accept: ".csv", style: "display:none" });
+    inp.addEventListener("change", () => {
+      const f = inp.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { try { cb(String(r.result)); } catch (e) { console.error(e); toast("取込に失敗しました", "error"); } };
+      r.readAsText(f);
+    });
+    document.body.appendChild(inp); inp.click();
+    setTimeout(() => inp.remove(), 2000);
+  }
+  function masterCsvRow(exportFn, importFn, templateCSV, baseName) {
+    const row = el("div", { class: "master-csv" });
+    row.appendChild(buttonEl("📤 書き出し", "btn-sec btn-sm", exportFn));
+    row.appendChild(buttonEl("📥 取込", "btn-sec btn-sm", () => pickCsv(importFn)));
+    row.appendChild(buttonEl("📄 テンプレート", "btn-sec btn-sm", () => downloadCSV(templateCSV, baseName + "_テンプレート.csv")));
+    return row;
+  }
+  function importProductsCsv(text) {
+    const parsed = core.parseProductsCSV(text);
+    parsed.forEach((p) => {
+      const ex = db.products.find((x) => x.name === p.name);
+      if (ex) { p.licenses.forEach((l) => { if (!ex.licenses.includes(l)) ex.licenses.push(l); }); if (p.description) ex.description = p.description; if (p.color) ex.color = p.color; }
+      else db.products.push({ id: nextId("pr"), name: p.name, description: p.description, color: p.color, licenses: p.licenses });
+    });
+    db.save(); toast(`製品 ${parsed.length} 件を取込みました`, "success"); render();
+  }
+  function importRepsCsv(text) {
+    const { sales, planners } = core.parseRepsCSV(text);
+    const merge = (list, reps) => reps.forEach((r) => { const ex = list.find((x) => (typeof x === "string" ? x : x.name) === r.name); if (ex && typeof ex === "object") { ex.email = r.email || ex.email; ex.teams = r.teams || ex.teams; } else if (!ex) list.push(r); });
+    merge(db.salesRepsList, sales); merge(db.plannerRepsList, planners);
+    db.save(); toast(`担当者 ${sales.length + planners.length} 件を取込みました`, "success"); render();
+  }
+  function importBillingCsv(text) {
+    const items = core.parseListCSV(text);
+    items.forEach((v) => { if (!db.billingTypes.includes(v)) db.billingTypes.push(v); });
+    db.save(); toast(`契約形態 ${items.length} 件を取込みました`, "success"); render();
+  }
+  function importCompaniesCsv(text) {
+    const parsed = core.parseCompaniesCSV(text);
+    parsed.forEach((c) => {
+      const ex = db.companies.find((x) => x.name === c.name);
+      if (ex) { c.departments.forEach((d) => { if (!ex.departments.includes(d)) ex.departments.push(d); }); if (c.note) ex.note = c.note; }
+      else db.companies.push({ id: nextId("co"), name: c.name, note: c.note, departments: c.departments, contacts: [] });
+    });
+    db.save(); toast(`企業 ${parsed.length} 件を取込みました`, "success"); render();
+  }
+
   function customerContactsPanel() {
     const panel = el("div", { class: "panel" });
     panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">顧客担当者</h3><span class="cell-sub">企業ごとに管理（登録・編集は企業から）</span></div>`;
@@ -1860,24 +1981,44 @@
     pBody.appendChild(addProd);
     pPanel.appendChild(pBody);
     root.appendChild(pPanel);
+    root.appendChild(masterCsvRow(
+      () => downloadCSV(core.productsToCSV(db.products), "製品ライセンス.csv"),
+      importProductsCsv,
+      "製品,ライセンス,説明,色\r\n" + ["Salesforce", "Sales Cloud", "クラウドCRM", "#00A1E0"].map(core.csvEscape).join(","),
+      "製品ライセンス"));
 
     // ■ 契約
     root.appendChild(el("h2", { class: "section-title" }, "契約"));
     root.appendChild(masterChipPanel("契約形態", db.billingTypes, () => {
       const v = prompt("契約形態（例: 年額, 月額, 従量課金）"); if (v && v.trim() && !db.billingTypes.includes(v.trim())) { db.billingTypes.push(v.trim()); db.save(); render(); }
     }, "＋ 契約形態を追加"));
+    root.appendChild(masterCsvRow(
+      () => downloadCSV(core.listToCSV("契約形態", db.billingTypes), "契約形態.csv"),
+      importBillingCsv,
+      "契約形態\r\n年額",
+      "契約形態"));
 
     // ■ 企業・部署（企業一覧を統合）
     root.appendChild(el("h2", { class: "section-title" }, "企業・部署"));
     const compActions = el("div", { class: "section-actions" });
     root.appendChild(compActions);
     renderCompanies(root, compActions);
+    root.appendChild(masterCsvRow(
+      () => downloadCSV(core.companiesToCSV(db.companies), "企業部署.csv"),
+      importCompaniesCsv,
+      "企業,部署,備考\r\n" + ["株式会社サンプル", "営業部", ""].map(core.csvEscape).join(","),
+      "企業部署"));
 
     // ■ 担当者
     root.appendChild(el("h2", { class: "section-title" }, "担当者"));
     root.appendChild(customerContactsPanel());
     root.appendChild(repsPanel("営業担当者", db.salesRepsList));
     root.appendChild(repsPanel("企画担当者", db.plannerRepsList));
+    root.appendChild(masterCsvRow(
+      () => downloadCSV(core.repsToCSV(db.salesRepsList, db.plannerRepsList), "担当者.csv"),
+      importRepsCsv,
+      "区分,氏名,メール,Teams\r\n" + ["営業", "田中 太郎", "tanaka@example.com", ""].map(core.csvEscape).join(","),
+      "担当者"));
 
     // ■ データ（サンプル投入）
     root.appendChild(el("h2", { class: "section-title" }, "データ"));

@@ -616,6 +616,8 @@ tr.company-first > td { border-top: 2px solid var(--border); }
   font-size: 11px; border-radius: 10px; padding: 1px 8px; font-weight: 600;
 }
 .master-prod-body { padding: 8px 0 14px 22px; }
+.master-csv { display: flex; gap: 8px; flex-wrap: wrap; margin: -8px 0 8px; padding: 0 2px; }
+.section-actions { margin-bottom: 8px; }
 
 /* ---------- ダッシュボード KPI (視認性向上) ---------- */
 .kpi { display: flex; align-items: flex-start; gap: 14px; }
