@@ -96,7 +96,7 @@
     },
 
     filterContracts(contracts, companies, opts) {
-      const { keyword = "", status = "all", rep = "all", product = "all", tag = "all" } = opts || {};
+      const { keyword = "", status = "all", rep = "all", product = "all", tag = "all", billing = "all" } = opts || {};
       const kw = keyword.trim().toLowerCase();
       const today = opts && opts.today;
       const nameById = {};
@@ -105,6 +105,7 @@
         if (status !== "all" && core.computeStatus(c, today) !== status) return false;
         if (rep !== "all" && (c.salesRep || "") !== rep) return false;
         if (product !== "all" && (c.productName || "") !== product) return false;
+        if (billing !== "all" && (c.billingType || "") !== billing) return false;
         if (tag !== "all" && !((c.tags || []).includes(tag))) return false;
         if (kw) {
           const hay = [nameById[c.companyId] || "", c.department, c.productName, c.licenseType, c.salesRep, c.contractNo, (c.tags || []).join(" "), c.note]
@@ -603,7 +604,7 @@
 
   const state = {
     view: "dashboard",
-    filter: { keyword: "", status: "all", rep: "all", product: "all", tag: "all" },
+    filter: { keyword: "", status: "all", rep: "all", product: "all", tag: "all", billing: "all" },
     sort: { key: "endDate", dir: "asc" },
     ganttScale: "month",
     ganttGroup: true,
@@ -871,6 +872,15 @@
     db.allProductNames().forEach((p) => prodSel.appendChild(el("option", { value: p, selected: state.filter.product === p }, p)));
     prodSel.addEventListener("change", (e) => { state.filter.product = e.target.value; refreshContractTable(); });
     bar.appendChild(prodSel);
+
+    const usedBilling = [...new Set(db.contracts.map((c) => c.billingType).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+    if (usedBilling.length) {
+      const billSel = el("select", { class: "select" });
+      billSel.appendChild(el("option", { value: "all" }, "すべての契約形態"));
+      usedBilling.forEach((b) => billSel.appendChild(el("option", { value: b, selected: state.filter.billing === b }, b)));
+      billSel.addEventListener("change", (e) => { state.filter.billing = e.target.value; refreshContractTable(); });
+      bar.appendChild(billSel);
+    }
 
     const repSel = el("select", { class: "select" });
     repSel.appendChild(el("option", { value: "all" }, "すべての担当"));
