@@ -39,7 +39,7 @@ const VIEWS = ["dashboard", "contracts", "gantt", "tasks", "settings"];
 
   // サンプルデータを投入（マスタ管理画面のボタン経由）
   doc.querySelector('.nav-item[data-view="settings"]').click();
-  const seedBtn = [...doc.querySelectorAll("#content button")].find((b) => b.textContent.includes("サンプル投入"));
+  const seedBtn = [...doc.querySelectorAll("#content button")].find((b) => b.textContent.includes("サンプル契約を投入"));
   if (seedBtn) seedBtn.click();
   // タスク自動生成
   doc.querySelector('.nav-item[data-view="tasks"]').click();

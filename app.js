@@ -881,6 +881,10 @@
     const clr = panel.querySelector("[data-clear]");
     if (clr) clr.addEventListener("click", () => { state.alertFilter = "all"; render(); });
     root.appendChild(panel);
+
+    // ■ 営業担当ランキング（最下部）
+    root.appendChild(el("h2", { class: "section-title" }, "営業担当ランキング"));
+    root.appendChild(repRankingPanel(today));
   }
 
   function fiscalYearPanel() {
@@ -1038,12 +1042,14 @@
     grpWrap.appendChild(document.createTextNode("企業・部署でグループ化"));
     bar.appendChild(grpWrap);
 
-    bar.appendChild(buttonEl("CSV出力", "btn-sec", () => {
+    bar.appendChild(buttonEl("📤 CSV書き出し", "btn-sec", () => {
       const today = todayStr();
       let list = core.filterContracts(db.contracts, db.companies, { ...state.filter, today });
       list = core.sortContracts(list, db.companies, state.sort.key, state.sort.dir, today);
       exportCSV(list);
     }));
+    bar.appendChild(buttonEl("📥 CSV取込", "btn-sec", () => $("#importFile").click()));
+    bar.appendChild(buttonEl("📄 テンプレート", "btn-sec", downloadTemplate));
 
     root.appendChild(bar);
     const panel = el("div", { class: "panel" });
@@ -1177,20 +1183,32 @@
     if (!_ganttTip) { _ganttTip = el("div", { class: "gantt-tip", hidden: true }); document.body.appendChild(_ganttTip); }
     return _ganttTip;
   }
-  function showGanttTip(e, c) {
+  function showTip(e, html) {
     const tip = ganttTipEl();
+    tip.innerHTML = html;
+    tip.hidden = false;
+    moveGanttTip(e);
+  }
+  function showGanttTip(e, c) {
     const st = core.computeStatus(c, todayStr());
     const dl = daysLeftCell(c);
-    tip.innerHTML =
+    showTip(e,
       `<div class="tip-co">${esc(db.companyName(c.companyId))}</div>` +
       `<div class="tip-sub">${esc(c.department || "—")}</div>` +
       `<div class="tip-main">${esc(c.productName || "")} <span class="tip-lic">${esc(c.licenseType || "")}</span></div>` +
       `<div class="tip-line">${esc(c.contractNo || "")}${c.billingType ? " ・ " + esc(c.billingType) : ""}</div>` +
       `<div class="tip-line">${core.formatDate(c.startDate)} 〜 ${core.formatDate(c.endDate)} ${dl}</div>` +
       `<div class="tip-line"><strong>${core.formatYen(core.contractAmount(c))}</strong> &nbsp; <span class="badge ${st}">${core.statusLabel(st)}</span></div>` +
-      `<div class="tip-line tip-sub">営業: ${esc(c.salesRep || "—")} ／ 企画: ${esc(c.plannerRep || "—")}</div>`;
-    tip.hidden = false;
-    moveGanttTip(e);
+      `<div class="tip-line tip-sub">営業: ${esc(c.salesRep || "—")} ／ 企画: ${esc(c.plannerRep || "—")}</div>`);
+  }
+  function showRepTip(e, name, list) {
+    const today = todayStr();
+    const rows = list.slice(0, 12).map((c) => {
+      const st = core.computeStatus(c, today);
+      return `<div class="tip-line">${esc(db.companyName(c.companyId))}・${esc(c.productName || "")} ${esc(c.licenseType || "")} <strong>${core.formatYen(core.contractAmount(c))}</strong> <span class="badge ${st}">${core.statusLabel(st)}</span></div>`;
+    }).join("");
+    const more = list.length > 12 ? `<div class="tip-line tip-sub">…他 ${list.length - 12} 件</div>` : "";
+    showTip(e, `<div class="tip-co">${esc(name)} の契約（${list.length}件）</div>${rows}${more}`);
   }
   function moveGanttTip(e) {
     const tip = _ganttTip; if (!tip || tip.hidden) return;
@@ -1228,6 +1246,10 @@
         `<td>${statusBits || "—"}</td>`;
       tr.style.cursor = "pointer";
       tr.addEventListener("click", () => { state.view = "contracts"; state.filter.rep = m.name; render(); });
+      const repContracts = db.contracts.filter((c) => (c.salesRep || "(未割当)") === m.name);
+      tr.addEventListener("mouseenter", (e) => showRepTip(e, m.name, repContracts));
+      tr.addEventListener("mousemove", moveGanttTip);
+      tr.addEventListener("mouseleave", hideGanttTip);
       tb.appendChild(tr);
     });
     t.appendChild(tb);
@@ -1295,9 +1317,6 @@
     bar.appendChild(legend);
     root.appendChild(bar);
 
-    // 営業担当ランキング（金額・件数・主な契約）
-    root.appendChild(repRankingPanel(today));
-
     const panel = el("div", { class: "panel" });
     panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">契約タイムライン</h3><span style="color:var(--text-mute);font-weight:600">${esc(core.formatDate(axis.startStr))} 〜 ${esc(core.formatDate(axis.endStr))}</span></div>`;
     const body = el("div", { class: "panel-body" });
@@ -1309,7 +1328,7 @@
     const scroll = el("div", { class: "gantt-scroll" });
     const wrap = el("div", { class: "gantt tl-" + axis.scale });
     const colPx = axis.scale === "day" ? 38 : axis.scale === "year" ? 64 : 60;
-    wrap.style.minWidth = (220 + axis.ticks.length * colPx) + "px";
+    wrap.style.minWidth = (250 + axis.ticks.length * colPx) + "px";
     const tp = core.datePct(today, axis.startStr, axis.endStr);
 
     const tickCells = (cls) => {
@@ -1356,7 +1375,8 @@
         const st = core.computeStatus(c, today);
         const bar2 = el("div", { class: "gantt-bar " + st });
         bar2.style.left = b.leftPct + "%"; bar2.style.width = b.widthPct + "%";
-        bar2.innerHTML = `<span class="gantt-bar-text">${esc(c.licenseType || c.productName || "")}</span>`;
+        const barInfo = [c.billingType, core.formatYen(core.contractAmount(c)), c.customerContact, c.salesRep, c.plannerRep].filter(Boolean).join(" ・ ");
+        bar2.innerHTML = `<span class="gantt-bar-text">${esc(barInfo)}</span>`;
         bar2.addEventListener("click", () => openContractDetail(c.id));
         bar2.addEventListener("mouseenter", (e) => showGanttTip(e, c));
         bar2.addEventListener("mousemove", moveGanttTip);
@@ -1402,7 +1422,7 @@
     // 今日線（全体を縦断する赤い線・ラベル列の右から）
     if (tp !== null) {
       const line = el("div", { class: "gantt-todayline" });
-      line.style.left = `calc(220px + (100% - 220px) * ${tp / 100})`;
+      line.style.left = `calc(250px + (100% - 250px) * ${tp / 100})`;
       wrap.appendChild(line);
     }
 
@@ -1859,14 +1879,12 @@
     root.appendChild(repsPanel("営業担当者", db.salesRepsList));
     root.appendChild(repsPanel("企画担当者", db.plannerRepsList));
 
-    // ■ データ
+    // ■ データ（サンプル投入）
     root.appendChild(el("h2", { class: "section-title" }, "データ"));
     const dPanel = el("div", { class: "panel" });
+    dPanel.innerHTML = `<div class="panel-head"><h3 class="panel-title">サンプルデータ</h3><span class="cell-sub">契約のCSV入出力は「契約一覧」画面にあります</span></div>`;
     const dBody = el("div", { class: "panel-body", style: "padding:16px 18px;display:flex;gap:8px;flex-wrap:wrap" });
-    dBody.appendChild(buttonEl("エクスポート (CSV)", "btn btn-sec", () => exportCSV()));
-    dBody.appendChild(buttonEl("インポート (CSV)", "btn btn-sec", () => $("#importFile").click()));
-    dBody.appendChild(buttonEl("テンプレートDL", "btn btn-sec", downloadTemplate));
-    dBody.appendChild(buttonEl("サンプル投入", "btn btn-sec", seedData));
+    dBody.appendChild(buttonEl("🧪 サンプル契約を投入", "btn btn-sec", seedData));
     dPanel.appendChild(dBody);
     root.appendChild(dPanel);
 
@@ -2303,17 +2321,21 @@
     actSec.appendChild(inputRow);
     container.appendChild(actSec);
 
-    const foot = el("div");
-    foot.appendChild(buttonEl("閉じる", "btn btn-sec", closeModal));
-    foot.appendChild(buttonEl("更新メール", "btn btn-sec", () => {
+    const foot = el("div", { class: "modal-foot-split" });
+    const footL = el("div", { class: "foot-left" });
+    footL.appendChild(buttonEl("閉じる", "btn btn-sec", closeModal));
+    const footR = el("div", { class: "foot-right" });
+    footR.appendChild(buttonEl("✉ 更新メール作成", "btn btn-sec", () => {
       const mail = core.renewalEmail(c, db.companyName(c.companyId), c.customerContact);
       const href = `mailto:?subject=${encodeURIComponent(mail.subject)}&body=${encodeURIComponent(mail.body)}`;
       const a = el("a", { href });
       document.body.appendChild(a); a.click(); a.remove();
       toast("メール下書きを開きました", "success");
     }));
-    foot.appendChild(buttonEl("複製して更新", "btn btn-sec", () => { closeModal(); openContractModal(null, core.renewalCopy(c)); }));
-    foot.appendChild(buttonEl("編集", "btn", () => { closeModal(); openContractModal(c.id); }));
+    footR.appendChild(buttonEl("⧉ 更新（複製）", "btn btn-sec", () => { closeModal(); openContractModal(null, core.renewalCopy(c)); }));
+    footR.appendChild(buttonEl("✎ 編集", "btn", () => { closeModal(); openContractModal(c.id); }));
+    foot.appendChild(footL);
+    foot.appendChild(footR);
     openModal("契約の詳細", container, foot);
   }
 
