@@ -128,6 +128,15 @@ test("担当フィルタ", () => {
   const r = core.filterContracts(contracts, companies, { rep: "田中", today: TODAY });
   assert.strictEqual(r.length, 1);
 });
+test("企画担当フィルタ", () => {
+  const cs = [
+    { companyId: "co1", plannerRep: "山本", startDate: "2025-01-01", endDate: "2027-01-01" },
+    { companyId: "co2", plannerRep: "中村", startDate: "2025-01-01", endDate: "2027-01-01" },
+  ];
+  const r = core.filterContracts(cs, companies, { planner: "中村", today: TODAY });
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].companyId, "co2");
+});
 test("契約形態フィルタ", () => {
   const cs = [
     { companyId: "co1", billingType: "年額", startDate: "2025-01-01", endDate: "2027-01-01" },

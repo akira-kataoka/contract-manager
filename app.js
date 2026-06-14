@@ -96,7 +96,7 @@
     },
 
     filterContracts(contracts, companies, opts) {
-      const { keyword = "", status = "all", rep = "all", product = "all", tag = "all", billing = "all" } = opts || {};
+      const { keyword = "", status = "all", rep = "all", planner = "all", product = "all", tag = "all", billing = "all" } = opts || {};
       const kw = keyword.trim().toLowerCase();
       const today = opts && opts.today;
       const nameById = {};
@@ -104,6 +104,7 @@
       return contracts.filter((c) => {
         if (status !== "all" && core.computeStatus(c, today) !== status) return false;
         if (rep !== "all" && (c.salesRep || "") !== rep) return false;
+        if (planner !== "all" && (c.plannerRep || "") !== planner) return false;
         if (product !== "all" && (c.productName || "") !== product) return false;
         if (billing !== "all" && (c.billingType || "") !== billing) return false;
         if (tag !== "all" && !((c.tags || []).includes(tag))) return false;
@@ -533,13 +534,13 @@
     /* ---------- マスタ既定値 ---------- */
     defaultProducts() {
       return [
-        { id: "pr_sf", name: "Salesforce", licenses: ["Sales Cloud", "Service Cloud", "Marketing Cloud Account Engagement", "Platform", "Experience Cloud", "CRM Analytics", "Field Service", "MuleSoft", "Tableau", "Slack"] },
-        { id: "pr_ms", name: "Microsoft 365", licenses: ["Business Basic", "Business Standard", "Business Premium", "Enterprise E3", "Enterprise E5"] },
-        { id: "pr_gw", name: "Google Workspace", licenses: ["Business Starter", "Business Standard", "Business Plus", "Enterprise"] },
-        { id: "pr_adobe", name: "Adobe", licenses: ["Acrobat Pro", "Creative Cloud コンプリート", "Photoshop", "Illustrator"] },
-        { id: "pr_box", name: "Box", licenses: ["Business", "Business Plus", "Enterprise"] },
-        { id: "pr_zoom", name: "Zoom", licenses: ["Pro", "Business", "Enterprise"] },
-        { id: "pr_aws", name: "AWS", licenses: ["Developer サポート", "Business サポート", "Enterprise サポート"] },
+        { id: "pr_sf", name: "Salesforce", color: "#00A1E0", description: "クラウドCRM/SFA。営業・サービス・マーケを統合管理。", licenses: ["Sales Cloud", "Service Cloud", "Marketing Cloud Account Engagement", "Platform", "Experience Cloud", "CRM Analytics", "Field Service", "MuleSoft", "Tableau", "Slack"] },
+        { id: "pr_ms", name: "Microsoft 365", color: "#D83B01", description: "Office/Teams/Exchange等の統合グループウェア。", licenses: ["Business Basic", "Business Standard", "Business Premium", "Enterprise E3", "Enterprise E5"] },
+        { id: "pr_gw", name: "Google Workspace", color: "#1A73E8", description: "Gmail/ドライブ/Meet等のクラウド業務基盤。", licenses: ["Business Starter", "Business Standard", "Business Plus", "Enterprise"] },
+        { id: "pr_adobe", name: "Adobe", color: "#FA0F00", description: "PDF・クリエイティブ制作ツール群。", licenses: ["Acrobat Pro", "Creative Cloud コンプリート", "Photoshop", "Illustrator"] },
+        { id: "pr_box", name: "Box", color: "#0061D5", description: "企業向けクラウドストレージ・コンテンツ管理。", licenses: ["Business", "Business Plus", "Enterprise"] },
+        { id: "pr_zoom", name: "Zoom", color: "#2D8CFF", description: "Web会議・ウェビナー。", licenses: ["Pro", "Business", "Enterprise"] },
+        { id: "pr_aws", name: "AWS", color: "#FF9900", description: "クラウドインフラのサポートプラン。", licenses: ["Developer サポート", "Business サポート", "Enterprise サポート"] },
       ];
     },
     defaultSalesReps() {
@@ -637,7 +638,21 @@
         if (!Array.isArray(co.departments)) co.departments = [];
         if (!Array.isArray(co.contacts)) co.contacts = [];
       });
+      db.normalizeReps();
     },
+    // 担当者マスタを {name,email,teams} オブジェクトに正規化（旧:文字列配列）
+    normalizeReps() {
+      const norm = (list) => (list || []).map((r) => (typeof r === "string" ? { name: r, email: "", teams: "" } : { name: r.name || "", email: r.email || "", teams: r.teams || "" })).filter((r) => r.name);
+      db.salesRepsList = norm(db.salesRepsList);
+      db.plannerRepsList = norm(db.plannerRepsList);
+    },
+    repProfile(name) {
+      const f = (list) => (list || []).find((r) => (typeof r === "string" ? r : r.name) === name);
+      const r = f(db.salesRepsList) || f(db.plannerRepsList);
+      return r && typeof r === "object" ? r : null;
+    },
+    repExists(list, name) { return (list || []).some((r) => (typeof r === "string" ? r : r.name) === name); },
+    addRep(list, name) { if (name && name.trim() && !db.repExists(list, name.trim())) list.push({ name: name.trim(), email: "", teams: "" }); },
     save() {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         companies: db.companies, contracts: db.contracts, products: db.products,
@@ -652,16 +667,16 @@
     },
     company(id) { return db.companies.find((x) => x.id === id); },
     product(name) { return db.products.find((p) => p.name === name); },
-    /** マスタ + 契約に使われている担当営業の和集合 */
+    /** マスタ + 契約に使われている担当者名（文字列）の和集合 */
     allSalesReps() {
-      const set = new Set(db.salesRepsList);
+      const set = new Set(db.salesRepsList.map((r) => (typeof r === "string" ? r : r.name)));
       db.contracts.forEach((c) => c.salesRep && set.add(c.salesRep));
-      return [...set].sort((a, b) => a.localeCompare(b, "ja"));
+      return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
     },
     allPlannerReps() {
-      const set = new Set(db.plannerRepsList);
+      const set = new Set(db.plannerRepsList.map((r) => (typeof r === "string" ? r : r.name)));
       db.contracts.forEach((c) => c.plannerRep && set.add(c.plannerRep));
-      return [...set].sort((a, b) => a.localeCompare(b, "ja"));
+      return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
     },
     allProductNames() {
       const set = new Set(db.products.map((p) => p.name));
@@ -682,7 +697,7 @@
 
   const state = {
     view: "dashboard",
-    filter: { keyword: "", status: "all", rep: "all", product: "all", tag: "all", billing: "all" },
+    filter: { keyword: "", status: "all", rep: "all", planner: "all", product: "all", tag: "all", billing: "all" },
     sort: { key: "endDate", dir: "asc" },
     ganttScale: "month",
     ganttGroup: true,
@@ -971,10 +986,19 @@
     }
 
     const repSel = el("select", { class: "select" });
-    repSel.appendChild(el("option", { value: "all" }, "すべての担当"));
+    repSel.appendChild(el("option", { value: "all" }, "すべての営業担当"));
     db.allSalesReps().forEach((r) => repSel.appendChild(el("option", { value: r, selected: state.filter.rep === r }, r)));
     repSel.addEventListener("change", (e) => { state.filter.rep = e.target.value; refreshContractTable(); });
     bar.appendChild(repSel);
+
+    const plannerReps = db.allPlannerReps();
+    if (plannerReps.length) {
+      const plSel = el("select", { class: "select" });
+      plSel.appendChild(el("option", { value: "all" }, "すべての企画担当"));
+      plannerReps.forEach((r) => plSel.appendChild(el("option", { value: r, selected: state.filter.planner === r }, r)));
+      plSel.addEventListener("change", (e) => { state.filter.planner = e.target.value; refreshContractTable(); });
+      bar.appendChild(plSel);
+    }
 
     const tags = db.allTags();
     if (tags.length) {
@@ -1625,6 +1649,47 @@
     return panel;
   }
 
+  function repsPanel(title, list) {
+    const panel = el("div", { class: "panel" });
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">${title}</h3></div>`;
+    const body = el("div", { class: "panel-body table-wrap" });
+    const t = el("table", { class: "data" });
+    t.innerHTML = `<thead><tr><th>氏名</th><th>メール</th><th>Teams</th><th></th></tr></thead>`;
+    const tb = el("tbody");
+    list.forEach((r, i) => {
+      const rep = typeof r === "string" ? { name: r, email: "", teams: "" } : r;
+      const tr = el("tr");
+      tr.innerHTML =
+        `<td class="cell-strong">${esc(rep.name)}</td>` +
+        `<td class="cell-sub">${rep.email ? `<a class="doc-link" href="mailto:${esc(rep.email)}">${esc(rep.email)}</a>` : "—"}</td>` +
+        `<td class="cell-sub">${rep.teams ? `<a class="doc-link" href="${esc(rep.teams)}" target="_blank" rel="noopener">💬 チャット</a>` : "—"}</td>`;
+      const td = el("td");
+      const wrap = el("div", { class: "row-actions" });
+      wrap.appendChild(buttonEl("✎", "btn-icon", () => {
+        const name = prompt("氏名", rep.name); if (name === null) return;
+        const email = prompt("メールアドレス", rep.email || ""); if (email === null) return;
+        const teams = prompt("Teamsチャットのリンク（URL）", rep.teams || ""); if (teams === null) return;
+        list[i] = { name: name.trim() || rep.name, email: email.trim(), teams: teams.trim() };
+        db.save(); render();
+      }, "編集"));
+      wrap.appendChild(buttonEl("🗑", "btn-icon", () => { if (confirm(`「${rep.name}」を削除しますか?`)) { list.splice(i, 1); db.save(); render(); } }, "削除"));
+      td.appendChild(wrap); tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    body.appendChild(t);
+    body.appendChild(buttonEl(`＋ ${title}を追加`, "btn btn-sec btn-sm", () => {
+      const name = prompt(`${title}名`); if (!name || !name.trim()) return;
+      if (db.repExists(list, name.trim())) { toast("既に登録されています", "error"); return; }
+      const email = prompt("メールアドレス（任意）") || "";
+      const teams = prompt("Teamsチャットのリンク（任意）") || "";
+      list.push({ name: name.trim(), email: email.trim(), teams: teams.trim() });
+      db.save(); render();
+    }));
+    panel.appendChild(body);
+    return panel;
+  }
+
   function customerContactsPanel() {
     const panel = el("div", { class: "panel" });
     panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">顧客担当者</h3><span class="cell-sub">企業ごとに管理（登録・編集は企業から）</span></div>`;
@@ -1673,13 +1738,25 @@
       // アコーディオン: 既定は折りたたみ、製品名＋ライセンス数のみ表示
       const card = el("details", { class: "master-prod", dataset: { name: p.name.toLowerCase() } });
       const summary = el("summary", { class: "master-prod-head" });
-      summary.innerHTML = `<span class="master-prod-name">${esc(p.name)}</span><span class="master-prod-count">${p.licenses.length}</span>`;
+      const color = p.color || "#64748b";
+      const initial = esc((p.name || "?").trim().charAt(0).toUpperCase());
+      summary.innerHTML =
+        `<span class="prod-logo" style="background:${esc(color)}">${initial}</span>` +
+        `<span class="prod-meta"><span class="master-prod-name">${esc(p.name)}</span>` +
+        `<span class="prod-desc">${esc(p.description || "")}</span></span>` +
+        `<span class="master-prod-count">${p.licenses.length}</span>`;
       card.appendChild(summary);
       const inner = el("div", { class: "master-prod-body" });
       const hact = el("div", { class: "row-actions", style: "margin-bottom:8px" });
       hact.appendChild(buttonEl("名称変更", "btn-icon", () => {
         const v = prompt("製品名", p.name); if (v && v.trim()) { p.name = v.trim(); db.save(); render(); }
       }, "名称変更"));
+      hact.appendChild(buttonEl("説明を編集", "btn-icon", () => {
+        const v = prompt("製品の説明", p.description || ""); if (v !== null) { p.description = v.trim(); db.save(); render(); }
+      }, "説明を編集"));
+      hact.appendChild(buttonEl("色を変更", "btn-icon", () => {
+        const v = prompt("ロゴ色（#RRGGBB）", p.color || "#64748b"); if (v && /^#?[0-9a-fA-F]{6}$/.test(v.trim())) { p.color = v.trim().startsWith("#") ? v.trim() : "#" + v.trim(); db.save(); render(); }
+      }, "色を変更"));
       hact.appendChild(buttonEl("🗑 製品を削除", "btn-icon", () => {
         if (confirm(`製品「${p.name}」を削除しますか?`)) { db.products = db.products.filter((x) => x.id !== p.id); db.save(); render(); }
       }, "削除"));
@@ -1721,12 +1798,8 @@
     // ■ 担当者
     root.appendChild(el("h2", { class: "section-title" }, "担当者"));
     root.appendChild(customerContactsPanel());
-    root.appendChild(masterChipPanel("営業担当者", db.salesRepsList, () => {
-      const v = prompt("営業担当者名"); if (v && v.trim() && !db.salesRepsList.includes(v.trim())) { db.salesRepsList.push(v.trim()); db.save(); render(); }
-    }, "＋ 営業担当者を追加"));
-    root.appendChild(masterChipPanel("企画担当者", db.plannerRepsList, () => {
-      const v = prompt("企画担当者名"); if (v && v.trim() && !db.plannerRepsList.includes(v.trim())) { db.plannerRepsList.push(v.trim()); db.save(); render(); }
-    }, "＋ 企画担当者を追加"));
+    root.appendChild(repsPanel("営業担当者", db.salesRepsList));
+    root.appendChild(repsPanel("企画担当者", db.plannerRepsList));
 
     // ■ データ
     root.appendChild(el("h2", { class: "section-title" }, "データ"));
@@ -1818,6 +1891,7 @@
       db.billingTypes = d.billingTypes.length ? d.billingTypes : core.defaultBillingTypes();
       db.tasks = d.tasks;
       db.companies.forEach((co) => { if (!Array.isArray(co.departments)) co.departments = []; if (!Array.isArray(co.contacts)) co.contacts = []; });
+      db.normalizeReps();
       db.save();
       toast("復元しました", "success");
       render();
@@ -1957,7 +2031,7 @@
     rebuildRep(c.salesRep);
     repSel.addEventListener("change", () => {
       if (repSel.value === "__new__") {
-        const v = prompt("営業担当名"); if (v && v.trim()) { if (!db.salesRepsList.includes(v.trim())) db.salesRepsList.push(v.trim()); db.save(); rebuildRep(v.trim()); }
+        const v = prompt("営業担当名"); if (v && v.trim()) { db.addRep(db.salesRepsList, v.trim()); db.save(); rebuildRep(v.trim()); }
         else repSel.value = c.salesRep || "";
       }
     });
@@ -1972,7 +2046,7 @@
     rebuildPlanner(c.plannerRep);
     plannerSel.addEventListener("change", () => {
       if (plannerSel.value === "__new__") {
-        const v = prompt("企画担当名"); if (v && v.trim()) { if (!db.plannerRepsList.includes(v.trim())) db.plannerRepsList.push(v.trim()); db.save(); rebuildPlanner(v.trim()); }
+        const v = prompt("企画担当名"); if (v && v.trim()) { db.addRep(db.plannerRepsList, v.trim()); db.save(); rebuildPlanner(v.trim()); }
         else plannerSel.value = c.plannerRep || "";
       }
     });
@@ -2106,6 +2180,14 @@
     openModal(editing ? "契約を編集" : "契約を追加", grid, foot);
   }
 
+  function repWithLinks(name) {
+    if (!name) return "—";
+    const p = db.repProfile(name);
+    let s = esc(name);
+    if (p && p.email) s += ` <a class="doc-link" href="mailto:${esc(p.email)}" title="${esc(p.email)}">✉</a>`;
+    if (p && p.teams) s += ` <a class="doc-link" href="${esc(p.teams)}" target="_blank" rel="noopener" title="Teams">💬</a>`;
+    return s;
+  }
   function openContractDetail(id) {
     const c = db.contracts.find((x) => x.id === id);
     if (!c) return;
@@ -2118,8 +2200,8 @@
       item("製品", esc(c.productName) || "—") +
       item("ライセンス", esc(c.licenseType) || "—") +
       item("契約形態", esc(c.billingType) || "—") +
-      item("営業担当", esc(c.salesRep) || "—") +
-      item("企画担当", esc(c.plannerRep) || "—") +
+      item("営業担当", repWithLinks(c.salesRep)) +
+      item("企画担当", repWithLinks(c.plannerRep)) +
       item("顧客担当者", esc(c.customerContact) || "—") +
       item("数量", (Number(c.quantity) || 0) + " ライセンス") +
       item("単価", c.unitPrice ? core.formatYen(c.unitPrice) : "—") +
@@ -2379,6 +2461,7 @@
         db.billingTypes = data.billingTypes.length ? data.billingTypes : core.defaultBillingTypes();
         db.tasks = data.tasks;
         db.companies.forEach((co) => { if (!Array.isArray(co.departments)) co.departments = []; if (!Array.isArray(co.contacts)) co.contacts = []; });
+        db.normalizeReps();
         db.save();
         toast(`復元しました (契約${db.contracts.length}件)`, "success");
         render();
@@ -2422,9 +2505,9 @@
           const p = db.product(productName);
           if (p && lic && !p.licenses.includes(lic)) p.licenses.push(lic);
           const rep = get("営業担当") || get("担当営業");
-          if (rep && !db.salesRepsList.includes(rep)) db.salesRepsList.push(rep);
+          if (rep) db.addRep(db.salesRepsList, rep);
           const planner = get("企画担当");
-          if (planner && !db.plannerRepsList.includes(planner)) db.plannerRepsList.push(planner);
+          if (planner) db.addRep(db.plannerRepsList, planner);
           const contact = get("顧客担当者");
           if (contact && !(co.contacts || []).some((ct) => (typeof ct === "string" ? ct : ct.name) === contact)) { co.contacts = co.contacts || []; co.contacts.push({ name: contact, email: "", phone: "" }); }
           const start = normalizeDate(get("開始日"));
