@@ -126,6 +126,23 @@ const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "setting
     });
   });
 
+  console.log("\n— ガント スケールクラス衝突防止 —");
+  test("コンテナのスケール修飾子(.gantt-month等)が誤って配置スタイルを持たない", () => {
+    // wrap は class="gantt gantt-month" 等。これに position:absolute/height等が当たると中身が消える
+    [".gantt-month", ".gantt-day", ".gantt-year"].forEach((sel) => {
+      const re = new RegExp("\\" + sel + "\\s*\\{([^}]*)\\}");
+      const m = css.match(re);
+      if (m) assert.ok(!/position\s*:\s*absolute|height\s*:/.test(m[1]), sel + " に配置スタイルがあり中身が消える恐れ");
+    });
+  });
+  test("月スケールでガント本体が描画される", () => {
+    window.__app.state.ganttScale = "month";
+    doc.querySelector('.nav-item[data-view="gantt"]').click();
+    assert.ok(doc.querySelector(".gantt-month.gantt"), "wrapにgantt-monthクラス");
+    assert.ok(doc.querySelectorAll(".gantt-row").length >= 2, "行が描画される");
+    assert.ok(doc.querySelectorAll(".gantt-tick").length > 0, "目盛りが描画される");
+  });
+
   console.log("\n— ダークモード変数の網羅 —");
   test("ダークテーマで主要カラー変数を上書きしている", () => {
     const darkBlock = css.match(/html\[data-theme="dark"\]\s*\{([^}]*)\}/);
