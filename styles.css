@@ -659,3 +659,49 @@ tr.company-first > td { border-top: 2px solid var(--border); }
   .form-grid, .detail-grid { grid-template-columns: 1fr; }
   .kpi-hero { grid-column: span 1; }
 }
+
+/* ---------- スマホ ---------- */
+@media (max-width: 640px) {
+  body { overflow-x: hidden; }
+  .sidebar { width: 54px; }
+  .brand { padding: 14px 0; justify-content: center; }
+  .nav { padding: 6px 6px; }
+  .nav-item { padding: 10px 0; justify-content: center; }
+  .nav-badge { position: absolute; top: 4px; right: 6px; margin: 0; }
+  .content { padding: 14px 12px 40px; }
+  .topbar { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+  .page-title { font-size: 17px; }
+  .topbar-actions .btn { padding: 8px 12px; font-size: 12.5px; }
+  .section-title { margin: 16px 0 8px; }
+
+  /* KPI: 2列 */
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi { padding: 12px; gap: 10px; }
+  .kpi-ico { width: 34px; height: 34px; font-size: 15px; }
+  .kpi-value { font-size: 20px; }
+  .kpi-value span { font-size: 18px !important; }
+
+  /* ツールバー: 検索を1行、他は折り返し */
+  .toolbar { gap: 8px; }
+  .toolbar .search { min-width: 100%; flex-basis: 100%; }
+  .toolbar .select, .toolbar .btn, .toolbar .btn-sec, .seg-btn { font-size: 12px; }
+
+  /* テーブルはセル余白を詰める（横スクロールは table-wrap が担保） */
+  table.data thead th, table.data tbody td { padding: 9px 10px; }
+
+  /* モーダル: ほぼ全画面 */
+  .modal-overlay { padding: 12px 6px; }
+  .modal { max-width: 100%; }
+  .modal-body { padding: 16px; }
+  .modal-head, .modal-foot { padding: 14px 16px; }
+  .modal-foot { flex-wrap: wrap; }
+  .modal-foot-split { flex-direction: column; align-items: stretch; }
+  .modal-foot-split .foot-right { justify-content: stretch; flex-wrap: wrap; }
+  .modal-foot .btn, .modal-foot-split .btn { flex: 1; justify-content: center; }
+
+  .gantt-legend { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 400px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+}
