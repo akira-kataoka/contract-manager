@@ -208,6 +208,7 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 15px 18px;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap; gap: 8px;
 }
 .panel-title { font-size: 14.5px; font-weight: 700; margin: 0; }
 .panel-warn { border-color: #f3d8a8; }
@@ -681,10 +682,15 @@ tr.company-first > td { border-top: 2px solid var(--border); }
   .kpi-value { font-size: 20px; }
   .kpi-value span { font-size: 18px !important; }
 
-  /* ツールバー: 検索を1行、他は折り返し */
+  /* ツールバー: 検索を1行、他は折り返し・伸縮 */
   .toolbar { gap: 8px; }
   .toolbar .search { min-width: 100%; flex-basis: 100%; }
-  .toolbar .select, .toolbar .btn, .toolbar .btn-sec, .seg-btn { font-size: 12px; }
+  .toolbar .select { flex: 1 1 140px; font-size: 12px; }
+  .toolbar .btn, .toolbar .btn-sec, .seg-btn { font-size: 12px; }
+  .span-ctrl { flex-wrap: wrap; }
+  .span-range { width: 100%; }
+  /* iOS のフォーカス時ズーム防止（入力は16px以上） */
+  .field input, .field select, .field textarea, .search input, .select { font-size: 16px; }
 
   /* テーブルはセル余白を詰める（横スクロールは table-wrap が担保） */
   table.data thead th, table.data tbody td { padding: 9px 10px; }
@@ -700,6 +706,10 @@ tr.company-first > td { border-top: 2px solid var(--border); }
   .modal-foot .btn, .modal-foot-split .btn { flex: 1; justify-content: center; }
 
   .gantt-legend { margin-left: 0; width: 100%; }
+  .gantt-scroll { max-height: calc(100vh - 180px); }
+  .master-prod-head { padding: 11px 2px; }
+  .prod-desc { white-space: normal; }
+  .modal-head h2 { font-size: 16px; }
 }
 
 @media (max-width: 400px) {
