@@ -138,6 +138,13 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
 }
 .page-title { margin: 0; font-size: 20px; font-weight: 700; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; }
+.topbar-right { display: flex; gap: 12px; align-items: center; }
+.btn-theme {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  width: 36px; height: 36px; border-radius: 8px; font-size: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-theme:hover { background: var(--slate-soft); }
 .content { padding: 24px 28px 48px; }
 
 /* ---------- ボタン ---------- */
@@ -429,7 +436,9 @@ tr.row-cancelled { opacity: .55; }
 .activity-add input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 
 /* ---------- ガント / タイムライン ---------- */
-.gantt { padding: 8px 18px 18px; min-width: 760px; }
+.gantt { padding: 0; min-width: 760px; position: relative; }
+.gantt-todayline { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--red); z-index: 4; pointer-events: none; }
+.group-subhead { padding: 5px 12px 5px 22px; font-size: 12px; font-weight: 600; color: var(--text-sub); background: var(--surface); }
 .gantt-row { display: flex; align-items: stretch; min-height: 38px; }
 .gantt-head { position: sticky; top: 0; z-index: 2; }
 .gantt-label {
@@ -598,6 +607,12 @@ tr.company-first > td { border-top: 2px solid var(--border); }
 .kpi.accent-red .kpi-ico { background: var(--red-soft); color: var(--red); }
 .kpi.accent-indigo { border-top: 3px solid #6366f1; }
 .kpi.accent-indigo .kpi-ico { background: #eef0ff; color: #6366f1; }
+.kpi-click { cursor: pointer; transition: box-shadow .12s, transform .06s; }
+.kpi-click:hover { box-shadow: var(--shadow-lg); }
+.kpi-click:active { transform: translateY(1px); }
+.kpi-active { outline: 2px solid var(--primary); }
+.doc-link { color: var(--primary); font-weight: 600; text-decoration: none; }
+.doc-link:hover { text-decoration: underline; }
 .kpi-hero { grid-column: span 2; }
 .kpi-hero .kpi-value { color: #6366f1; }
 @media (max-width: 1100px) { .kpi-hero { grid-column: span 1; } }

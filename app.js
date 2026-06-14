@@ -325,7 +325,7 @@
     },
 
     /** 表示スケール(week/month/year)に応じた時間軸 {startStr,endStr,ticks[],scale} を返す */
-    ganttAxis(scale, today) {
+    ganttAxis(scale, today, units) {
       const t = core.parseDate(today);
       if (!t) return null;
       const fmt = core.fmtDateISO;
@@ -336,9 +336,11 @@
       const ticks = [];
 
       if (scale === "day") {
+        const total = units || 35;
+        const before = Math.round(total * 0.2);
         const base = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
-        start = new Date(base.getTime() - 7 * DAY);
-        end = new Date(base.getTime() + 28 * DAY);
+        start = new Date(base.getTime() - before * DAY);
+        end = new Date(start.getTime() + total * DAY);
         let cur = new Date(start);
         while (cur < end) {
           const dow = cur.getUTCDay();
@@ -346,16 +348,18 @@
           cur = new Date(cur.getTime() + DAY);
         }
       } else if (scale === "year") {
+        const total = units || 4;
         start = new Date(Date.UTC(t.getUTCFullYear() - 1, 0, 1));
-        end = new Date(Date.UTC(t.getUTCFullYear() + 3, 0, 1));
+        end = new Date(Date.UTC(t.getUTCFullYear() - 1 + total, 0, 1));
         let cur = new Date(start);
         while (cur < end) {
           ticks.push({ date: fmt(cur), label: "Q" + (cur.getUTCMonth() / 3 + 1), major: cur.getUTCMonth() === 0, weekend: false });
           cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 3, 1));
         }
       } else {
+        const total = units || 15;
         start = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 2, 1));
-        end = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 13, 1));
+        end = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() - 2 + total, 1));
         let cur = new Date(start);
         while (cur < end) {
           ticks.push({ date: fmt(cur), label: (cur.getUTCMonth() + 1) + "月", major: cur.getUTCMonth() === 0, weekend: false });
@@ -642,7 +646,10 @@
     sort: { key: "endDate", dir: "asc" },
     ganttScale: "month",
     ganttGroup: true,
+    ganttUnits: { day: 35, month: 15, year: 4 },
     taskFilter: "open",
+    companyFilter: { keyword: "", sort: "name" },
+    alertFilter: "all",
   };
 
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -765,16 +772,27 @@
 
     // ■ アラート
     root.appendChild(el("h2", { class: "section-title" }, "アラート"));
+    const af = state.alertFilter || "all";
     const g3 = el("div", { class: "kpi-grid" });
     g3.innerHTML =
       card("accent-amber", "⏰", "更新間近", `${expiring.length}<small>件</small>`, `${EXPIRING_DAYS}日以内`) +
       card("accent-red", "!", "期限切れ", `${expired.length}<small>件</small>`, "未更新");
     root.appendChild(g3);
+    const aCards = g3.querySelectorAll(".kpi");
+    [["expiring", aCards[0]], ["expired", aCards[1]]].forEach(([key, cardEl]) => {
+      cardEl.classList.add("kpi-click");
+      if (af === key) cardEl.classList.add("kpi-active");
+      cardEl.addEventListener("click", () => { state.alertFilter = af === key ? "all" : key; render(); });
+    });
 
-    // 対応が必要な契約（企業ごとにグルーピング）
-    const need = expiring.concat(expired);
+    // 対応が必要な契約（更新間近/期限切れ → 企業 → 部署でグルーピング、KPIクリックで絞り込み）
+    let need = expiring.concat(expired);
+    if (af === "expiring") need = expiring.slice();
+    else if (af === "expired") need = expired.slice();
     const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">対応が必要な契約</h3><span style="color:var(--text-mute);font-weight:600">${need.length}件</span></div>`;
+    const filterLabel = af === "expiring" ? "（更新間近のみ）" : af === "expired" ? "（期限切れのみ）" : "";
+    const clearBtn = af !== "all" ? `<button class="btn btn-sec btn-sm" data-clear="1">絞り込み解除</button>` : `<span style="color:var(--text-mute);font-weight:600">${need.length}件</span>`;
+    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">対応が必要な契約 <span class="cell-sub">${filterLabel}</span></h3>${clearBtn}</div>`;
     const body = el("div", { class: "panel-body table-wrap" });
     if (need.length === 0) {
       body.innerHTML = `<div class="empty"><div class="empty-ico">✓</div><div class="empty-title">対応が必要な契約はありません</div></div>`;
@@ -787,11 +805,20 @@
           const head = el("div", { class: "group-head" });
           head.innerHTML = `<span>${esc(db.companyName(cid))}</span><span class="gantt-group-count">${byCompany[cid].length}</span>`;
           body.appendChild(head);
-          const list = byCompany[cid].sort((a, b) => (core.daysUntil(a.endDate, today) ?? 9e9) - (core.daysUntil(b.endDate, today) ?? 9e9));
-          body.appendChild(contractsTable(list, true));
+          // 部署ごとにサブグループ（製品・ライセンスは表の各行で表示）
+          const byDept = {};
+          byCompany[cid].forEach((c) => { const d = c.department || "（部署なし）"; (byDept[d] = byDept[d] || []).push(c); });
+          Object.keys(byDept).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
+            body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
+            const list = byDept[dept]
+              .sort((a, b) => (a.productName || "").localeCompare(b.productName || "", "ja") || (a.licenseType || "").localeCompare(b.licenseType || "", "ja"));
+            body.appendChild(contractsTable(list, true));
+          });
         });
     }
     panel.appendChild(body);
+    const clr = panel.querySelector("[data-clear]");
+    if (clr) clr.addEventListener("click", () => { state.alertFilter = "all"; render(); });
     root.appendChild(panel);
   }
 
@@ -1033,9 +1060,9 @@
   function renderGantt(root, actions) {
     actions.appendChild(buttonEl("+ 契約を追加", "btn", () => openContractModal()));
     const today = todayStr();
-    const axis = core.ganttAxis(state.ganttScale, today);
+    const axis = core.ganttAxis(state.ganttScale, today, state.ganttUnits[state.ganttScale]);
 
-    // ツールバー（スケール切替 + グループ化 + 状態の凡例）
+    // ツールバー（スケール切替 + 表示期間 + グループ化 + 状態の凡例）
     const bar = el("div", { class: "toolbar" });
     const seg = el("div", { class: "segmented" });
     [["day", "日"], ["month", "月"], ["year", "年"]].forEach(([v, l]) => {
@@ -1044,6 +1071,17 @@
       seg.appendChild(b);
     });
     bar.appendChild(seg);
+
+    // 表示期間（スケールごとに選択肢を変える）
+    const spanOpts = {
+      day: [[14, "2週間"], [35, "5週間"], [56, "8週間"], [91, "13週間"]],
+      month: [[6, "6ヶ月"], [12, "12ヶ月"], [15, "15ヶ月"], [24, "24ヶ月"], [36, "36ヶ月"]],
+      year: [[2, "2年"], [4, "4年"], [6, "6年"], [10, "10年"]],
+    }[state.ganttScale];
+    const spanSel = el("select", { class: "select" });
+    spanOpts.forEach(([v, l]) => spanSel.appendChild(el("option", { value: v, selected: state.ganttUnits[state.ganttScale] === v }, l)));
+    spanSel.addEventListener("change", (e) => { state.ganttUnits[state.ganttScale] = Number(e.target.value); render(); });
+    bar.appendChild(spanSel);
     const grpWrap = el("label", { class: "switch-label" });
     const grpChk = el("input", { type: "checkbox", checked: state.ganttGroup });
     grpChk.addEventListener("change", () => { state.ganttGroup = grpChk.checked; render(); });
@@ -1080,7 +1118,6 @@
         if (cls === "gantt-tick") c.innerHTML = `<span class="gantt-tk-main">${tk.label}</span>` + (tk.sub ? `<span class="gantt-wd">${tk.sub}</span>` : "");
         frag.appendChild(c);
       });
-      if (tp !== null) { const tl = el("div", { class: "gantt-today" }); tl.style.left = tp + "%"; frag.appendChild(tl); }
       return frag;
     };
 
@@ -1155,6 +1192,13 @@
         .forEach((c) => wrap.appendChild(makeContractRow(c, true)));
     }
 
+    // 今日線（全体を縦断する赤い線・ラベル列の右から）
+    if (tp !== null) {
+      const line = el("div", { class: "gantt-todayline" });
+      line.style.left = `calc(220px + (100% - 220px) * ${tp / 100})`;
+      wrap.appendChild(line);
+    }
+
     scroll.appendChild(wrap);
     body.appendChild(scroll);
     panel.appendChild(body);
@@ -1199,6 +1243,10 @@
       chkTd.appendChild(chk);
       row.appendChild(chkTd);
       const td2 = el("td"); td2.innerHTML = `<div class="cell-strong"${tk.status === "done" ? ' style="text-decoration:line-through"' : ""}>${esc(tk.title)}</div>${tk.note ? `<div class="cell-sub">${esc(tk.note)}</div>` : ""}`; row.appendChild(td2);
+      const tc = tk.contractId ? db.contracts.find((x) => x.id === tk.contractId) : null;
+      const td3 = el("td"); td3.innerHTML = tc ? `<div class="cell-sub">${esc(tc.productName || "")} ${esc(tc.licenseType || "")}</div>` : "—";
+      if (tc) { td3.style.cursor = "pointer"; td3.addEventListener("click", () => openContractDetail(tc.id)); }
+      row.appendChild(td3);
       const td4 = el("td"); td4.innerHTML = `${core.formatDate(tk.dueDate)} ${tk.status !== "done" ? `<div class="cell-sub">${dl}</div>` : ""}`; row.appendChild(td4);
       row.appendChild(el("td", {}, esc(tk.assignee || "—")));
       row.appendChild(el("td", {}, tk.status === "done" ? `<span class="badge active">完了</span>` : `<span class="badge expiring">未完了</span>`));
@@ -1210,30 +1258,34 @@
       return row;
     };
 
-    // 契約ごとにグルーピング
-    const byContract = {};
-    list.forEach((tk) => { const k = tk.contractId || "__none__"; (byContract[k] = byContract[k] || []).push(tk); });
-    const keys = Object.keys(byContract).sort((a, b) => {
-      if (a === "__none__") return 1;
-      if (b === "__none__") return -1;
-      return db.companyName((db.contracts.find((x) => x.id === a) || {}).companyId).localeCompare(db.companyName((db.contracts.find((x) => x.id === b) || {}).companyId), "ja");
+    // 企業 → 部署 でグルーピング
+    const NONE = "__none__";
+    const groups = {};
+    list.forEach((tk) => {
+      const c = tk.contractId ? db.contracts.find((x) => x.id === tk.contractId) : null;
+      const cid = c ? c.companyId : NONE;
+      const dept = c ? (c.department || "（部署なし）") : "（契約なし）";
+      groups[cid] = groups[cid] || {};
+      (groups[cid][dept] = groups[cid][dept] || []).push(tk);
     });
-    keys.forEach((k) => {
-      const c = k === "__none__" ? null : db.contracts.find((x) => x.id === k);
-      const head = el("div", { class: "group-head group-head-click" });
-      if (c) {
-        head.innerHTML = `<span>${esc(db.companyName(c.companyId))} <span class="cell-sub">${esc(c.productName || "")} ${esc(c.licenseType || "")}</span></span><span class="gantt-group-count">${byContract[k].length}</span>`;
-        head.addEventListener("click", () => openContractDetail(c.id));
-      } else {
-        head.innerHTML = `<span>（契約なし）</span><span class="gantt-group-count">${byContract[k].length}</span>`;
-      }
-      body.appendChild(head);
-      const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th></th><th>タスク</th><th>期日</th><th>担当</th><th>状態</th><th></th></tr></thead>`;
-      const tb = el("tbody");
-      byContract[k].forEach((tk) => tb.appendChild(taskRow(tk)));
-      t.appendChild(tb);
-      body.appendChild(t);
+    const cids = Object.keys(groups).sort((a, b) => {
+      if (a === NONE) return 1; if (b === NONE) return -1;
+      return db.companyName(a).localeCompare(db.companyName(b), "ja");
+    });
+    cids.forEach((cid) => {
+      const total = Object.values(groups[cid]).reduce((s, arr) => s + arr.length, 0);
+      const ch = el("div", { class: "group-head" });
+      ch.innerHTML = `<span>${cid === NONE ? "（契約なし）" : esc(db.companyName(cid))}</span><span class="gantt-group-count">${total}</span>`;
+      body.appendChild(ch);
+      Object.keys(groups[cid]).sort((a, b) => a.localeCompare(b, "ja")).forEach((dept) => {
+        if (cid !== NONE) body.appendChild(el("div", { class: "group-subhead" }, esc(dept)));
+        const t = el("table", { class: "data" });
+        t.innerHTML = `<thead><tr><th></th><th>タスク</th><th>関連契約</th><th>期日</th><th>担当</th><th>状態</th><th></th></tr></thead>`;
+        const tb = el("tbody");
+        groups[cid][dept].forEach((tk) => tb.appendChild(taskRow(tk)));
+        t.appendChild(tb);
+        body.appendChild(t);
+      });
     });
     panel.appendChild(body);
     root.appendChild(panel);
@@ -1331,19 +1383,66 @@
   function renderCompanies(root, actions) {
     actions.appendChild(buttonEl("+ 企業を追加", "btn", () => openCompanyModal()));
     const today = todayStr();
+    const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+    const contactNames = (co) => (co.contacts || []).map((ct) => (typeof ct === "string" ? ct : ct.name));
+
+    // 企業ごとの集計
+    let rows = db.companies.map((co) => {
+      const cs = db.contracts.filter((c) => c.companyId === co.id);
+      return {
+        co, cs,
+        amount: cs.reduce((s, c) => s + core.contractAmount(c), 0),
+        alert: cs.filter((c) => ["expiring", "expired"].includes(core.computeStatus(c, today))).length,
+        reps: uniq(cs.map((c) => c.salesRep)),
+        planners: uniq(cs.map((c) => c.plannerRep)),
+        contacts: uniq(contactNames(co).concat(cs.map((c) => c.customerContact))),
+      };
+    });
+
+    // 検索
+    const kw = state.companyFilter.keyword.trim().toLowerCase();
+    if (kw) {
+      rows = rows.filter((r) => {
+        const hay = [r.co.name, (r.co.departments || []).join(" "), r.reps.join(" "), r.planners.join(" "), r.contacts.join(" ")].join(" ").toLowerCase();
+        return hay.includes(kw);
+      });
+    }
+    // 並び替え
+    const sort = state.companyFilter.sort;
+    rows.sort((a, b) => {
+      if (sort === "amount") return b.amount - a.amount;
+      if (sort === "count") return b.cs.length - a.cs.length;
+      if (sort === "alert") return b.alert - a.alert;
+      return a.co.name.localeCompare(b.co.name, "ja");
+    });
+
+    // ツールバー
+    const bar = el("div", { class: "toolbar" });
+    const search = el("div", { class: "search" });
+    const sInput = el("input", { type: "text", placeholder: "企業・部署・担当・顧客担当者で検索", value: state.companyFilter.keyword });
+    sInput.addEventListener("input", (e) => { state.companyFilter.keyword = e.target.value; render(); });
+    search.appendChild(sInput);
+    bar.appendChild(search);
+    const sortSel = el("select", { class: "select" });
+    [["name", "企業名順"], ["count", "契約数順"], ["amount", "金額順"], ["alert", "要対応順"]].forEach(([v, l]) =>
+      sortSel.appendChild(el("option", { value: v, selected: sort === v }, l)));
+    sortSel.addEventListener("change", (e) => { state.companyFilter.sort = e.target.value; render(); });
+    bar.appendChild(sortSel);
+    root.appendChild(bar);
+
     const panel = el("div", { class: "panel" });
     const body = el("div", { class: "panel-body table-wrap" });
-    if (db.companies.length === 0) {
-      body.innerHTML = `<div class="empty"><div class="empty-ico">▣</div><div class="empty-title">企業が登録されていません</div></div>`;
+    if (rows.length === 0) {
+      body.innerHTML = `<div class="empty"><div class="empty-ico">▣</div><div class="empty-title">${db.companies.length ? "該当する企業がありません" : "企業が登録されていません"}</div></div>`;
     } else {
       const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>企業</th><th>部署</th><th class="num">契約数</th><th class="num">金額</th><th>営業担当</th><th>企画担当</th><th class="num">要対応</th><th></th></tr></thead>`;
+      t.innerHTML = `<thead><tr><th>企業</th><th>部署</th><th class="num">契約数</th><th class="num">金額</th><th>営業担当</th><th>企画担当</th><th>顧客担当者</th><th class="num">要対応</th><th></th></tr></thead>`;
       const tb = el("tbody");
-      const uniq = (arr) => [...new Set(arr.filter(Boolean))].join("、") || "—";
-      db.companies.slice().sort((a, b) => a.name.localeCompare(b.name, "ja")).forEach((co) => {
-        const cs = db.contracts.filter((c) => c.companyId === co.id);
+      const join = (arr) => arr.join("、") || "—";
+      rows.forEach((r) => {
+        const co = r.co;
         const deptMap = {};
-        cs.forEach((c) => { const d = c.department || "（部署なし）"; (deptMap[d] = deptMap[d] || []).push(c); });
+        r.cs.forEach((c) => { const d = c.department || "（部署なし）"; (deptMap[d] = deptMap[d] || []).push(c); });
         (co.departments || []).forEach((d) => { if (!deptMap[d]) deptMap[d] = []; });
         let depts = Object.keys(deptMap).sort((a, b) => a.localeCompare(b, "ja"));
         if (depts.length === 0) { depts = ["（部署なし）"]; deptMap["（部署なし）"] = []; }
@@ -1358,8 +1457,9 @@
             <td>${esc(d)}</td>
             <td class="num">${list.length}</td>
             <td class="num">${core.formatYen(amount)}</td>
-            <td class="cell-sub">${esc(uniq(list.map((c) => c.salesRep)))}</td>
-            <td class="cell-sub">${esc(uniq(list.map((c) => c.plannerRep)))}</td>
+            <td class="cell-sub">${esc(join(uniq(list.map((c) => c.salesRep))))}</td>
+            <td class="cell-sub">${esc(join(uniq(list.map((c) => c.plannerRep))))}</td>
+            <td class="cell-sub">${first ? esc(join(r.contacts)) : ""}</td>
             <td class="num">${alert ? `<span class="days-left warn">${alert}</span>` : "0"}</td>`;
           const td = el("td");
           if (first) {
@@ -1658,6 +1758,8 @@
     cancelField.appendChild(cancelWrap);
 
     const tagsInput = el("input", { type: "text", id: "f_tags", value: (c.tags || []).join(", "), placeholder: "カンマ区切り（例: 重要顧客, アップセル）" });
+    const quoteInput = el("input", { type: "url", id: "f_quote", value: c.quoteUrl || "", placeholder: "見積書のURL（SharePoint/Drive等）" });
+    const docInput = el("input", { type: "url", id: "f_doc", value: c.contractUrl || "", placeholder: "契約書のURL" });
 
     const noteInput = el("textarea", { id: "f_note", placeholder: "備考" });
     noteInput.value = c.note || "";
@@ -1684,6 +1786,8 @@
     const endField = field('終了日 <span class="req">*</span>', endInput);
     endField.appendChild(termPresets);
     grid.appendChild(endField);
+    grid.appendChild(field("見積書リンク", quoteInput));
+    grid.appendChild(field("契約書リンク", docInput));
     grid.appendChild(field("タグ", tagsInput, true));
     grid.appendChild(field("備考", noteInput, true));
     updateAmount();
@@ -1725,6 +1829,8 @@
         autoRenew: autoChk.checked,
         statusOverride: cancelChk.checked ? "cancelled" : "",
         tags: core.parseTags(tagsInput.value),
+        quoteUrl: quoteInput.value.trim(),
+        contractUrl: docInput.value.trim(),
         note: noteInput.value.trim(),
       };
       if (editing) {
@@ -1764,6 +1870,8 @@
       item("自動更新", c.autoRenew ? "あり" : "なし") +
       item("契約期間", `${core.formatDate(c.startDate)} 〜 ${core.formatDate(c.endDate)}`) +
       item("状態", `${statusBadge(c)} &nbsp; ${daysLeftCell(c)}`) +
+      item("見積書", c.quoteUrl ? `<a href="${esc(c.quoteUrl)}" target="_blank" rel="noopener" class="doc-link">📄 見積書を開く</a>` : "—") +
+      item("契約書", c.contractUrl ? `<a href="${esc(c.contractUrl)}" target="_blank" rel="noopener" class="doc-link">📄 契約書を開く</a>` : "—") +
       item("タグ", (c.tags && c.tags.length) ? c.tags.map((t) => `<span class="tag-pill">${esc(t)}</span>`).join(" ") : "—", true) +
       item("備考", `<span class="detail-note">${esc(c.note) || "—"}</span>`, true);
 
@@ -2135,7 +2243,7 @@
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     const btn = $("#btnTheme");
-    if (btn) btn.textContent = theme === "dark" ? "☀ ライトモード" : "🌙 ダークモード";
+    if (btn) { btn.textContent = theme === "dark" ? "☀" : "🌙"; btn.title = theme === "dark" ? "ライトモード" : "ダークモード"; }
   }
   function toggleTheme() {
     const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
@@ -2155,14 +2263,17 @@
       if (p.sort && p.sort.key) state.sort = { key: p.sort.key, dir: p.sort.dir === "desc" ? "desc" : "asc" };
       if (["day", "month", "year"].includes(p.ganttScale)) state.ganttScale = p.ganttScale;
       if (typeof p.ganttGroup === "boolean") state.ganttGroup = p.ganttGroup;
+      if (p.ganttUnits && typeof p.ganttUnits === "object") Object.assign(state.ganttUnits, p.ganttUnits);
       if (p.taskFilter) state.taskFilter = p.taskFilter;
+      if (p.companyFilter && typeof p.companyFilter === "object") Object.assign(state.companyFilter, p.companyFilter);
     } catch (e) { /* noop */ }
   }
   function persistPrefs() {
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify({
         view: state.view, filter: state.filter, sort: state.sort,
-        ganttScale: state.ganttScale, ganttGroup: state.ganttGroup, taskFilter: state.taskFilter,
+        ganttScale: state.ganttScale, ganttGroup: state.ganttGroup, ganttUnits: state.ganttUnits,
+        taskFilter: state.taskFilter, companyFilter: state.companyFilter,
       }));
     } catch (e) { /* noop */ }
   }

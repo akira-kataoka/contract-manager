@@ -35,18 +35,18 @@
           <span class="nav-ico">▦</span><span>ダッシュボード</span>
         </button>
         <div class="nav-section">業務</div>
-        <button class="nav-item" data-view="contracts">
-          <span class="nav-ico">▤</span><span>契約一覧</span>
-        </button>
         <button class="nav-item" data-view="gantt">
           <span class="nav-ico">▭</span><span>タイムライン</span>
-        </button>
-        <button class="nav-item" data-view="companies">
-          <span class="nav-ico">▣</span><span>企業一覧</span>
         </button>
         <button class="nav-item" data-view="tasks">
           <span class="nav-ico">✔</span><span>更新タスク</span>
           <span class="nav-badge" id="navTaskBadge" hidden>0</span>
+        </button>
+        <button class="nav-item" data-view="companies">
+          <span class="nav-ico">▣</span><span>企業一覧</span>
+        </button>
+        <button class="nav-item" data-view="contracts">
+          <span class="nav-ico">▤</span><span>契約一覧</span>
         </button>
         <div class="nav-section">設定</div>
         <button class="nav-item" data-view="settings">
@@ -72,9 +72,6 @@
             <button class="btn-ghost" id="btnRestore">復元</button>
           </div>
         </div>
-        <div class="foot-group">
-          <button class="btn-ghost" id="btnTheme">🌙 ダークモード</button>
-        </div>
         <input type="file" id="importFile" accept=".csv" hidden />
         <input type="file" id="restoreFile" accept=".json" hidden />
       </div>
@@ -84,7 +81,10 @@
     <main class="main">
       <header class="topbar">
         <h1 class="page-title" id="pageTitle">ダッシュボード</h1>
-        <div class="topbar-actions" id="topbarActions"></div>
+        <div class="topbar-right">
+          <div class="topbar-actions" id="topbarActions"></div>
+          <button class="btn-theme" id="btnTheme" title="ダークモード">🌙</button>
+        </div>
       </header>
       <section class="content" id="content"></section>
     </main>

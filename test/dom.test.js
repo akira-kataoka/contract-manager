@@ -354,7 +354,7 @@ test("テーマ切替で data-theme と localStorage が変わる", () => {
   btn.click();
   assert.strictEqual(doc.documentElement.getAttribute("data-theme"), "dark");
   assert.strictEqual(window.localStorage.getItem("keiyaku_theme"), "dark");
-  assert.ok(btn.textContent.includes("ライト"), "ラベルが切り替わる");
+  assert.ok(btn.title.includes("ライト"), "ツールチップが切り替わる");
   btn.click();
   assert.strictEqual(doc.documentElement.getAttribute("data-theme"), "light");
 });

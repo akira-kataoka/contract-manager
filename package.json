@@ -7,13 +7,9 @@
     "test": "node test/core.test.js && node test/dom.test.js && node test/smoke.test.js",
     "test:unit": "node test/core.test.js",
     "test:dom": "node test/dom.test.js",
-    "test:smoke": "node test/smoke.test.js",
-    "screenshot": "node scripts/screenshot.js"
+    "test:smoke": "node test/smoke.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
-  },
-  "dependencies": {
-    "puppeteer": "^25.1.0"
   }
 }
