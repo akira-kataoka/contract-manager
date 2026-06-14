@@ -81,6 +81,12 @@
       return "¥" + v.toLocaleString("ja-JP");
     },
 
+    /** href 用にURLスキームを検証（http/https/mailto/tel のみ許可、それ以外は # ）。javascript: 等のXSSを防ぐ */
+    safeUrl(u) {
+      const s = String(u || "").trim();
+      return /^(https?:|mailto:|tel:)/i.test(s) ? s : "#";
+    },
+
     TAX_RATE: 0.1,
 
     /** 税込金額（四捨五入）。rate 省略時は標準税率 */
@@ -994,99 +1000,6 @@
     root.appendChild(repRankingPanel(today));
   }
 
-  function fiscalYearPanel() {
-    const data = core.byFiscalYear(db.contracts, 4);
-    const max = Math.max(1, ...data.map((d) => d.amount));
-    const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">年度別 契約金額（4月始まり・開始日基準）</h3></div>`;
-    const body = el("div", { class: "panel-body table-wrap" });
-    if (data.length === 0) {
-      body.innerHTML = `<div class="empty"><div class="empty-title">データがありません</div></div>`;
-    } else {
-      const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>年度</th><th class="num">新規件数</th><th class="num">金額</th><th>規模</th></tr></thead>`;
-      const tb = el("tbody");
-      data.forEach((d) => {
-        const pct = Math.round((d.amount / max) * 100);
-        tb.innerHTML += `<tr><td class="cell-strong">${d.fy}年度</td><td class="num">${d.count}</td><td class="num">${core.formatYen(d.amount)}</td><td><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:#6366f1"></div></div></td></tr>`;
-      });
-      t.appendChild(tb); body.appendChild(t);
-    }
-    panel.appendChild(body);
-    return panel;
-  }
-
-  function forecastPanel(today) {
-    const data = core.forecastByMonth(db.contracts, today, 6);
-    const max = Math.max(1, ...data.map((d) => d.amount));
-    const total = data.reduce((s, d) => s + d.amount, 0);
-    const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">更新予定（今後6ヶ月）</h3><span style="color:var(--text-mute);font-weight:600">${core.formatYen(total)}</span></div>`;
-    const body = el("div", { class: "panel-body table-wrap" });
-    if (total === 0) body.innerHTML = `<div class="empty"><div class="empty-title">今後6ヶ月に終了する契約はありません</div></div>`;
-    else {
-      const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>終了月</th><th class="num">件数</th><th class="num">金額</th><th>更新規模</th></tr></thead>`;
-      const tb = el("tbody");
-      data.forEach((d) => {
-        const pct = Math.round((d.amount / max) * 100);
-        tb.innerHTML += `<tr><td class="cell-strong">${d.label}</td><td class="num">${d.count}</td><td class="num">${core.formatYen(d.amount)}</td><td><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:var(--primary)"></div></div></td></tr>`;
-      });
-      t.appendChild(tb); body.appendChild(t);
-    }
-    panel.appendChild(body);
-    return panel;
-  }
-
-  function productSummaryPanel() {
-    const map = {};
-    db.contracts.forEach((c) => {
-      const p = c.productName || "(未設定)";
-      if (!map[p]) map[p] = { count: 0, amount: 0 };
-      map[p].count++;
-      map[p].amount += core.contractAmount(c);
-    });
-    const rows = Object.entries(map).sort((a, b) => b[1].amount - a[1].amount);
-    const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">製品別サマリ</h3></div>`;
-    const body = el("div", { class: "panel-body table-wrap" });
-    if (rows.length === 0) body.innerHTML = `<div class="empty"><div class="empty-title">データがありません</div></div>`;
-    else {
-      const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>製品</th><th class="num">契約数</th><th class="num">金額合計</th></tr></thead>`;
-      const tb = el("tbody");
-      rows.forEach(([p, v]) => { tb.innerHTML += `<tr><td class="cell-strong">${esc(p)}</td><td class="num">${v.count}</td><td class="num">${core.formatYen(v.amount)}</td></tr>`; });
-      t.appendChild(tb); body.appendChild(t);
-    }
-    panel.appendChild(body);
-    return panel;
-  }
-
-  function repSummaryPanel(today) {
-    const map = {};
-    db.contracts.forEach((c) => {
-      const r = c.salesRep || "(未割当)";
-      if (!map[r]) map[r] = { count: 0, amount: 0, alert: 0 };
-      map[r].count++;
-      map[r].amount += core.contractAmount(c);
-      if (["expiring", "expired"].includes(core.computeStatus(c, today))) map[r].alert++;
-    });
-    const rows = Object.entries(map).sort((a, b) => b[1].amount - a[1].amount);
-    const panel = el("div", { class: "panel" });
-    panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">担当営業別サマリ</h3></div>`;
-    const body = el("div", { class: "panel-body table-wrap" });
-    if (rows.length === 0) body.innerHTML = `<div class="empty"><div class="empty-title">データがありません</div></div>`;
-    else {
-      const t = el("table", { class: "data" });
-      t.innerHTML = `<thead><tr><th>担当営業</th><th class="num">契約数</th><th class="num">金額合計</th><th class="num">要対応</th></tr></thead>`;
-      const tb = el("tbody");
-      rows.forEach(([rep, v]) => { tb.innerHTML += `<tr><td class="cell-strong">${esc(rep)}</td><td class="num">${v.count}</td><td class="num">${core.formatYen(v.amount)}</td><td class="num">${v.alert ? `<span class="days-left warn">${v.alert}</span>` : "0"}</td></tr>`; });
-      t.appendChild(tb); body.appendChild(t);
-    }
-    panel.appendChild(body);
-    return panel;
-  }
-
   /* ---------- 契約一覧 ---------- */
   function renderContracts(root, actions) {
     actions.appendChild(buttonEl("+ 契約を追加", "btn", () => openContractModal()));
@@ -1732,29 +1645,6 @@
     openModal(editing ? "タスクを編集" : "タスクを追加", grid, foot);
   }
 
-  /* ---------- 更新アラート ---------- */
-  function renderRenewals(root) {
-    const today = todayStr();
-    const groups = [
-      { title: "期限切れ", filter: (c) => core.computeStatus(c, today) === "expired" },
-      { title: "30日以内に終了", filter: (c) => { const d = core.daysUntil(c.endDate, today); return d !== null && d >= 0 && d <= 30; } },
-      { title: "31〜60日以内に終了", filter: (c) => { const d = core.daysUntil(c.endDate, today); return d !== null && d > 30 && d <= 60; } },
-    ];
-    let any = false;
-    groups.forEach((g) => {
-      const list = db.contracts.filter(g.filter).sort((a, b) => (core.daysUntil(a.endDate, today) ?? 9e9) - (core.daysUntil(b.endDate, today) ?? 9e9));
-      if (list.length === 0) return;
-      any = true;
-      const panel = el("div", { class: "panel" });
-      panel.innerHTML = `<div class="panel-head"><h3 class="panel-title">${g.title}<span style="color:var(--text-mute);font-weight:600;margin-left:8px">${list.length}件</span></h3></div>`;
-      const body = el("div", { class: "panel-body table-wrap" });
-      body.appendChild(contractsTable(list, true));
-      panel.appendChild(body);
-      root.appendChild(panel);
-    });
-    if (!any) root.innerHTML = `<div class="panel"><div class="empty"><div class="empty-ico">✓</div><div class="empty-title">更新が必要な契約はありません</div></div></div>`;
-  }
-
   /* ---------- 企業一覧 ---------- */
   function renderCompanies(root, actions) {
     actions.appendChild(buttonEl("+ 企業を追加", "btn", () => openCompanyModal()));
@@ -1931,7 +1821,7 @@
         `<td class="cell-strong">${esc(rep.name)}</td>` +
         `<td class="cell-sub">${esc(rep.dept) || "—"}</td>` +
         `<td class="cell-sub">${rep.email ? `<a class="doc-link" href="mailto:${esc(rep.email)}">${esc(rep.email)}</a>` : "—"}</td>` +
-        `<td class="cell-sub">${rep.teams ? `<a class="doc-link" href="${esc(rep.teams)}" target="_blank" rel="noopener">💬 チャット</a>` : "—"}</td>` +
+        `<td class="cell-sub">${rep.teams ? `<a class="doc-link" href="${esc(core.safeUrl(rep.teams))}" target="_blank" rel="noopener">💬 チャット</a>` : "—"}</td>` +
         `<td class="cell-sub">${esc(rep.note) || "—"}</td>`;
       const td = el("td");
       const wrap = el("div", { class: "row-actions" });
@@ -2543,7 +2433,7 @@
     const p = db.repProfile(name);
     let s = esc(name);
     if (p && p.email) s += ` <a class="doc-link" href="mailto:${esc(p.email)}" title="${esc(p.email)}">✉</a>`;
-    if (p && p.teams) s += ` <a class="doc-link" href="${esc(p.teams)}" target="_blank" rel="noopener" title="Teams">💬</a>`;
+    if (p && p.teams) s += ` <a class="doc-link" href="${esc(core.safeUrl(p.teams))}" target="_blank" rel="noopener" title="Teams">💬</a>`;
     return s;
   }
   function openContractDetail(id) {
@@ -2568,8 +2458,8 @@
       item("自動更新", c.autoRenew ? "あり" : "なし") +
       item("契約期間", `${core.formatDate(c.startDate)} 〜 ${core.formatDate(c.endDate)}`) +
       item("状態", `${statusBadge(c)} &nbsp; ${daysLeftCell(c)}`) +
-      item("見積書", c.quoteUrl ? `<a href="${esc(c.quoteUrl)}" target="_blank" rel="noopener" class="doc-link">📄 見積書を開く</a>` : "—") +
-      item("契約書", c.contractUrl ? `<a href="${esc(c.contractUrl)}" target="_blank" rel="noopener" class="doc-link">📄 契約書を開く</a>` : "—") +
+      item("見積書", c.quoteUrl ? `<a href="${esc(core.safeUrl(c.quoteUrl))}" target="_blank" rel="noopener" class="doc-link">📄 見積書を開く</a>` : "—") +
+      item("契約書", c.contractUrl ? `<a href="${esc(core.safeUrl(c.contractUrl))}" target="_blank" rel="noopener" class="doc-link">📄 契約書を開く</a>` : "—") +
       item("タグ", (c.tags && c.tags.length) ? c.tags.map((t) => `<span class="tag-pill">${esc(t)}</span>`).join(" ") : "—", true) +
       item("備考", `<span class="detail-note">${esc(c.note) || "—"}</span>`, true);
 

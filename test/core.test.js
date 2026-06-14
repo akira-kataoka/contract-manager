@@ -76,6 +76,18 @@ test("2年契約は半分に年額換算", () =>
 test("期間不明は金額そのまま", () =>
   assert.strictEqual(core.annualAmount({ startDate: "", endDate: "", quantity: 2, unitPrice: 1000 }), 2000));
 
+console.log("\n— safeUrl (XSS対策) —");
+test("http/https/mailto/tel は許可", () => {
+  assert.strictEqual(core.safeUrl("https://example.com"), "https://example.com");
+  assert.strictEqual(core.safeUrl("mailto:a@b.com"), "mailto:a@b.com");
+  assert.strictEqual(core.safeUrl("tel:0312345678"), "tel:0312345678");
+});
+test("javascript: 等の危険スキームは # に無害化", () => {
+  assert.strictEqual(core.safeUrl("javascript:alert(1)"), "#");
+  assert.strictEqual(core.safeUrl("data:text/html,<script>"), "#");
+  assert.strictEqual(core.safeUrl(""), "#");
+});
+
 console.log("\n— taxIncluded —");
 test("標準税率10%で税込計算", () => assert.strictEqual(core.taxIncluded(180000), 198000));
 test("端数は四捨五入", () => assert.strictEqual(core.taxIncluded(1995), 2195)); // 1995*1.1=2194.5→2195
