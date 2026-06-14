@@ -31,7 +31,7 @@ window.console.error = (...a) => errors.push("console.error: " + a.join(" "));
 
 window.eval(appJs);
 const doc = window.document;
-const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "renewals", "settings"];
+const VIEWS = ["dashboard", "contracts", "gantt", "companies", "tasks", "settings"];
 
 (async function main() {
   await new Promise((r) => { if (doc.readyState !== "loading") r(); else doc.addEventListener("DOMContentLoaded", () => r()); });

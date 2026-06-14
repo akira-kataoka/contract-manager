@@ -54,17 +54,20 @@ console.log("\n— 初期描画 —");
 test("初期ビューはダッシュボード", () => {
   assert.ok(doc.querySelector("#pageTitle").textContent.includes("ダッシュボード"));
 });
-test("KPIカードが6枚描画される", () => {
-  const kpis = doc.querySelectorAll(".kpi");
-  assert.strictEqual(kpis.length, 6);
+test("ダッシュボードは全体/有効契約/アラートの3セクション", () => {
+  const titles = [...doc.querySelectorAll("#content .section-title")].map((s) => s.textContent);
+  assert.ok(titles.includes("全体"), "全体セクション");
+  assert.ok(titles.includes("有効契約"), "有効契約セクション");
+  assert.ok(titles.includes("アラート"), "アラートセクション");
 });
-test("ARR(年額換算)カードがある", () => {
-  assert.ok(doc.querySelector("#content").textContent.includes("年額換算"));
+test("全体に累計KPIがある", () => {
+  const txt = doc.querySelector("#content").textContent;
+  assert.ok(txt.includes("累計契約金額"));
+  assert.ok(txt.includes("累計契約数"));
+  assert.ok(txt.includes("累計契約企業数"));
 });
-
-test("更新予定パネルが描画される", () => {
-  doc.querySelector('.nav-item[data-view="dashboard"]').click();
-  assert.ok(doc.querySelector("#content").textContent.includes("更新予定（今後6ヶ月）"));
+test("重複の疑いパネルは廃止されている", () => {
+  assert.ok(!doc.querySelector("#content").textContent.includes("重複の疑い"));
 });
 
 console.log("\n— ナビゲーション —");
@@ -129,19 +132,19 @@ test("検索ボックスで絞り込める", () => {
   assert.ok(doc.querySelector("#contractTableBody").textContent.includes("テスト商事"));
 });
 
-console.log("\n— 更新アラートバッジ —");
-test("期限切れ契約でアラートが増える", () => {
+console.log("\n— ダッシュボードのアラート統合 —");
+test("期限切れ契約がダッシュボードの対応が必要な契約に出る", () => {
   const { db } = app;
   db.contracts.push({
-    id: "ct_exp", companyId: "co_test", department: "経理部", licenseType: "Platform",
+    id: "ct_exp", companyId: "co_test", department: "経理部", productName: "Salesforce", licenseType: "Platform",
     quantity: 5, unitPrice: 12000, startDate: "2024-01-01", endDate: "2025-01-01",
     salesRep: "鈴木", autoRenew: false, note: "",
   });
   db.save();
-  doc.querySelector('.nav-item[data-view="renewals"]').click();
-  assert.ok(doc.querySelector("#content").textContent.includes("期限切れ"));
-  const badge = doc.querySelector("#navAlertBadge");
-  assert.ok(!badge.hidden, "アラートバッジが表示される");
+  doc.querySelector('.nav-item[data-view="dashboard"]').click();
+  const txt = doc.querySelector("#content").textContent;
+  assert.ok(txt.includes("対応が必要な契約"));
+  assert.ok(txt.includes("テスト商事"), "期限切れ契約の企業が表示される");
 });
 
 console.log("\n— モーダル —");
@@ -220,16 +223,17 @@ test("マスタ管理に既定製品が表示される", () => {
   const txt = doc.querySelector("#content").textContent;
   assert.ok(txt.includes("製品・ライセンス"));
   assert.ok(txt.includes("Salesforce"));
-  assert.ok(txt.includes("担当営業"));
+  assert.ok(txt.includes("営業担当"));
+  assert.ok(txt.includes("企画担当"));
 });
-test("ガントのスケール切替(週/月/年)が効く", () => {
+test("ガントのスケール切替(日/月/年)が効く", () => {
   doc.querySelector('.nav-item[data-view="gantt"]').click();
   const segBtns = [...doc.querySelectorAll(".segmented .seg-btn")];
   assert.strictEqual(segBtns.length, 3);
-  const weekBtn = segBtns.find((b) => b.textContent === "週");
-  weekBtn.click();
-  assert.ok(doc.querySelector(".gantt.gantt-week"), "週スケールが適用される");
-  assert.strictEqual(app.state.ganttScale, "week");
+  const dayBtn = segBtns.find((b) => b.textContent === "日");
+  dayBtn.click();
+  assert.ok(doc.querySelector(".gantt.gantt-day"), "日スケールが適用される");
+  assert.strictEqual(app.state.ganttScale, "day");
 });
 
 console.log("\n— 更新タスク —");
@@ -336,11 +340,11 @@ test("画面とガント設定が localStorage に保存される", () => {
   let prefs = JSON.parse(window.localStorage.getItem("keiyaku_prefs"));
   assert.strictEqual(prefs.view, "settings");
   doc.querySelector('.nav-item[data-view="gantt"]').click();
-  const weekBtn = [...doc.querySelectorAll(".segmented .seg-btn")].find((b) => b.textContent === "週");
-  weekBtn.click();
+  const dayBtn = [...doc.querySelectorAll(".segmented .seg-btn")].find((b) => b.textContent === "日");
+  dayBtn.click();
   prefs = JSON.parse(window.localStorage.getItem("keiyaku_prefs"));
   assert.strictEqual(prefs.view, "gantt");
-  assert.strictEqual(prefs.ganttScale, "week");
+  assert.strictEqual(prefs.ganttScale, "day");
 });
 
 console.log("\n— ダークモード —");
@@ -389,7 +393,7 @@ test("ダッシュボードにステータス構成バーが描画される", ()
   doc.querySelector("#modalClose").click();
   // この時点で契約は複数存在する
   doc.querySelector('.nav-item[data-view="dashboard"]').click();
-  assert.ok(doc.querySelector("#content").textContent.includes("契約ステータス構成"));
+  assert.ok(doc.querySelector("#content").textContent.includes("契約ステータス"));
   assert.ok(doc.querySelector(".stack-bar"), "積み上げバーがある");
   assert.ok(doc.querySelector(".stack-seg"), "セグメントがある");
 });

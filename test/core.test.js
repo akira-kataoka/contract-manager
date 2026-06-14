@@ -326,21 +326,29 @@ test("datePct は範囲中央付近を返す", () => {
 });
 
 console.log("\n— ganttAxis —");
-test("month スケールは Jan を major にする", () => {
+test("month スケールは月見出しと年バンドを持つ", () => {
   const a = core.ganttAxis("month", TODAY);
   assert.strictEqual(a.scale, "month");
   assert.ok(a.ticks.length >= 12);
-  const jan = a.ticks.find((t) => /\/1$/.test(t.label));
-  assert.ok(jan && jan.major, "1月の目盛りが major");
+  assert.ok(a.ticks.find((t) => t.label === "1月" && t.major), "1月が major");
+  assert.ok(a.groups.some((g) => /年$/.test(g.label)), "年バンドがある");
 });
-test("week スケールは月スケールより目盛りが細かい", () => {
-  const w = core.ganttAxis("week", TODAY);
+test("day スケールは月スケールより目盛りが細かく曜日を持つ", () => {
+  const d = core.ganttAxis("day", TODAY);
   const m = core.ganttAxis("month", TODAY);
-  assert.ok(w.ticks.length > m.ticks.length);
+  assert.strictEqual(d.scale, "day");
+  assert.ok(d.ticks.length > m.ticks.length);
+  assert.ok(d.ticks.every((t) => t.sub && t.sub.length === 1), "各目盛りに曜日");
+  assert.ok(d.ticks.some((t) => t.weekend), "週末フラグがある");
 });
-test("year スケールは年の major 目盛りを持つ", () => {
+test("不正スケールは month に正規化", () => {
+  assert.strictEqual(core.ganttAxis("week", TODAY).scale, "month");
+});
+test("year スケールは4年分の年バンドを持つ", () => {
   const y = core.ganttAxis("year", TODAY);
-  assert.ok(y.ticks.some((t) => t.major && /^\d{4}$/.test(t.label)));
+  assert.strictEqual(y.scale, "year");
+  assert.strictEqual(y.groups.length, 4);
+  assert.ok(y.groups.every((g) => /^\d{4}年$/.test(g.label)));
 });
 
 console.log("\n— suggestRenewalTasks —");

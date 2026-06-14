@@ -48,23 +48,33 @@
           <span class="nav-ico">✔</span><span>更新タスク</span>
           <span class="nav-badge" id="navTaskBadge" hidden>0</span>
         </button>
-        <button class="nav-item" data-view="renewals">
-          <span class="nav-ico">⏰</span><span>更新アラート</span>
-          <span class="nav-badge" id="navAlertBadge" hidden>0</span>
-        </button>
         <div class="nav-section">設定</div>
         <button class="nav-item" data-view="settings">
           <span class="nav-ico">⚙</span><span>マスタ管理</span>
         </button>
       </nav>
       <div class="sidebar-foot">
-        <button class="btn-ghost" id="btnExport">エクスポート</button>
-        <button class="btn-ghost" id="btnImport">インポート</button>
-        <button class="btn-ghost" id="btnTemplate">テンプレートDL</button>
-        <button class="btn-ghost" id="btnBackup">バックアップ</button>
-        <button class="btn-ghost" id="btnRestore">復元</button>
-        <button class="btn-ghost" id="btnSeed">サンプル投入</button>
-        <button class="btn-ghost" id="btnTheme">🌙 ダークモード</button>
+        <div class="foot-group">
+          <div class="foot-label">データ</div>
+          <div class="foot-row">
+            <button class="btn-ghost" id="btnExport">エクスポート</button>
+            <button class="btn-ghost" id="btnImport">インポート</button>
+          </div>
+          <div class="foot-row">
+            <button class="btn-ghost" id="btnTemplate">テンプレートDL</button>
+            <button class="btn-ghost" id="btnSeed">サンプル投入</button>
+          </div>
+        </div>
+        <div class="foot-group">
+          <div class="foot-label">バックアップ</div>
+          <div class="foot-row">
+            <button class="btn-ghost" id="btnBackup">保存</button>
+            <button class="btn-ghost" id="btnRestore">復元</button>
+          </div>
+        </div>
+        <div class="foot-group">
+          <button class="btn-ghost" id="btnTheme">🌙 ダークモード</button>
+        </div>
         <input type="file" id="importFile" accept=".csv" hidden />
         <input type="file" id="restoreFile" accept=".json" hidden />
       </div>

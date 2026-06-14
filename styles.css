@@ -503,14 +503,29 @@ tr.row-cancelled { opacity: .55; }
 .switch-label input { width: auto; }
 
 /* ---------- ガント軸 / グループ ---------- */
+.gantt-scroll { overflow-x: auto; }
 .gantt-tick {
-  position: absolute; top: 0; height: 26px;
-  display: flex; align-items: center; justify-content: center;
+  position: absolute; top: 0; height: 38px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   font-size: 11px; color: var(--text-mute); font-weight: 600;
   border-left: 1px solid var(--border); overflow: hidden; white-space: nowrap;
 }
 .gantt-tick.major { color: var(--primary); }
+.gantt-tick.weekend { background: rgba(100,116,139,.08); }
+.gantt-tick .gantt-wd { font-size: 9px; font-weight: 600; opacity: .8; }
 .gantt-grid.major { border-left: 1px solid var(--border); }
+.gantt-grid.weekend { background: rgba(100,116,139,.05); }
+.gantt-head .gantt-track { height: 38px; min-height: 38px; }
+/* 上段の年/月バンド */
+.gantt-grouprow { height: 24px; }
+.gantt-grouprow .gantt-track { height: 24px; min-height: 24px; }
+.gantt-band {
+  position: absolute; top: 0; height: 24px;
+  display: flex; align-items: center; padding-left: 8px;
+  font-size: 11.5px; font-weight: 700; color: var(--text);
+  border-left: 1px solid var(--border); background: var(--surface-2);
+  overflow: hidden; white-space: nowrap;
+}
 .gantt-group { border-top: 1px solid var(--border); }
 .gantt-group:first-of-type { border-top: 0; }
 .gantt-group-head {
@@ -519,10 +534,49 @@ tr.row-cancelled { opacity: .55; }
   font-size: 12.5px; font-weight: 700; color: var(--text);
   position: sticky; left: 0;
 }
+.gantt-dept-head {
+  padding: 4px 12px 4px 22px; font-size: 12px; font-weight: 600; color: var(--text-sub);
+  background: var(--surface); position: sticky; left: 0;
+}
 .gantt-group-count {
   background: var(--slate-soft); color: var(--text-sub);
   font-size: 11px; border-radius: 10px; padding: 1px 8px;
 }
+.gantt-legend { display: inline-flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-left: auto; }
+
+/* ---------- セクション見出し / グループ見出し ---------- */
+.section-title {
+  font-size: 13px; font-weight: 700; color: var(--text-sub);
+  margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--primary);
+}
+.section-title:first-child { margin-top: 0; }
+.group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 16px; background: var(--surface-2);
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 700; color: var(--text);
+}
+.group-head-click { cursor: pointer; }
+.group-head-click:hover { background: var(--slate-soft); }
+tr.company-first > td { border-top: 2px solid var(--border); }
+
+/* ---------- サイドバー下部グループ ---------- */
+.foot-group { margin-bottom: 10px; }
+.foot-label { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; color: #475569; text-transform: uppercase; padding: 0 2px 4px; }
+.foot-row { display: flex; gap: 6px; }
+.foot-row .btn-ghost { flex: 1; padding: 6px 4px; }
+
+/* ---------- マスタ製品アコーディオン ---------- */
+.master-prod { border-bottom: 1px solid var(--border); }
+.master-prod-head { cursor: pointer; list-style: none; }
+.master-prod-head::-webkit-details-marker { display: none; }
+.master-prod-head::before { content: "▸"; color: var(--text-mute); margin-right: 8px; font-size: 11px; }
+.master-prod[open] > .master-prod-head::before { content: "▾"; }
+.master-prod-count {
+  margin-left: 8px; background: var(--slate-soft); color: var(--text-sub);
+  font-size: 11px; border-radius: 10px; padding: 1px 8px; font-weight: 600;
+}
+.master-prod-body { padding: 8px 0 14px 22px; }
 
 /* ---------- ダッシュボード KPI (視認性向上) ---------- */
 .kpi { display: flex; align-items: flex-start; gap: 14px; }
